@@ -2792,7 +2792,6 @@ Panel {
                     anchors.rightMargin: Style.space(9)
                     anchors.verticalCenter: parent.verticalCenter
                     text: "󰦖"
-                    textFormat: Text.PlainText
                     color: root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall

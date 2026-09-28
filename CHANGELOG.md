@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-28
+
 ### Security
 
 - Repository coding-agent instructions and task artifacts are no longer shipped in the plugin checkout
@@ -13,6 +15,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Fixed
 
+- The panel opens again: removed the duplicate `textFormat` assignment in the search suggestion spinner (issue #1)
 - Playback retries now rotate through Yandex Music's available download variants instead of requesting the same unreachable CDN stream three times; each stalled attempt is cancelled after five seconds, exhausted tracks advance without flashing an error, and a final error appears only after every queued track fails
 - Opening My Likes or another Library collection is no longer blocked by an audio stream that is still connecting; collection loading owns its independent UI state and playback completion cannot replace it with the old queue
 - When My Wave adds a new batch and starts its next track, loading now transfers to that track and clears after playback starts instead of leaving the queue hidden behind a permanent spinner
@@ -223,6 +226,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Initial public release
 - Device OAuth, background `mpv` playback, library, search, queue, and persistent state
 
+[0.8.2]: https://github.com/vornashev/omarchy-yandex-music/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/vornashev/omarchy-yandex-music/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/vornashev/omarchy-yandex-music/compare/v0.7.4...v0.8.0
 [0.7.4]: https://github.com/vornashev/omarchy-yandex-music/compare/v0.7.3...v0.7.4

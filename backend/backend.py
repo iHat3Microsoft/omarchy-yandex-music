@@ -29,7 +29,7 @@ from dbus_next.service import ServiceInterface, dbus_property, method, signal as
 from yandex_music import Client
 from yandex_music._client.device_auth import _DEFAULT_CLIENT_ID, _DEFAULT_CLIENT_SECRET, _OAUTH_BASE_URL
 
-APP_VERSION = "0.8.1"
+APP_VERSION = "0.8.2"
 CONFIG = Path.home() / ".config/omarchy-yandex-music"
 TOKEN_FILE = CONFIG / "token.json"
 STATE_FILE = CONFIG / "state.json"
