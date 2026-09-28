@@ -1,3 +1,4 @@
+import queue
 import threading
 import unittest
 from types import SimpleNamespace
@@ -157,6 +158,159 @@ class PriorityOneTests(unittest.TestCase):
 
         self.assertEqual(attempts, 1)
         self.assertEqual(player.state["loadingStage"], "audioStream")
+
+    def test_library_loading_can_replace_inflight_track_loading(self):
+        player = self.make_player(radio=False)
+        player.state.update(
+            authenticated=True, loading=True, loadingKind="track",
+            loadingStage="audioStream")
+        calls = []
+
+        with patch.object(
+                backend.threading, "Thread",
+                side_effect=lambda target, daemon: SimpleNamespace(start=target)):
+            player._loading(lambda: calls.append("likes"), "likes")
+            player._loading(lambda: calls.append("playlist"), "playlist")
+
+        self.assertEqual(calls, ["likes"])
+        self.assertTrue(player.state["loading"])
+        self.assertEqual(player.state["loadingKind"], "likes")
+        self.assertEqual(player.state["loadingStage"], "")
+
+    def test_audio_url_variants_cycle_through_sorted_alternatives(self):
+        player = self.make_player(radio=False)
+        player.preferences = {"audioQuality": "best"}
+        infos = [
+            SimpleNamespace(codec="aac", bitrate_in_kbps=192, direct_link="aac-192"),
+            SimpleNamespace(codec="mp3", bitrate_in_kbps=320, direct_link="mp3-320"),
+            SimpleNamespace(codec="flac", bitrate_in_kbps=1000, direct_link="flac-1000"),
+        ]
+        self.track.get_download_info = lambda **kwargs: list(infos)
+
+        urls = [player._url(self.track, variant=attempt) for attempt in range(4)]
+
+        self.assertEqual(urls, ["mp3-320", "aac-192", "flac-1000", "mp3-320"])
+
+    def test_stalled_audio_variants_are_cancelled_before_advancing(self):
+        player = self.make_player(radio=False)
+        player.queue.append(SimpleNamespace(id="43", duration_ms=180_000, albums=[]))
+        player.play_generation = 0
+        player.consecutive_failures = 0
+        player.muted = False
+        player._metadata = lambda track: {"title": "Track", "artist": "Artist"}
+        player._url = lambda track, variant=0: f"variant-{variant}"
+        commands = []
+        player._mpv_command = lambda command, *args: commands.append(command)
+        player._wait_mpv_ready = lambda: (_ for _ in ()).throw(
+            RuntimeError("stream timeout"))
+        errors = []
+        player._set_error = errors.append
+
+        with patch.object(
+                backend.threading, "Thread",
+                side_effect=lambda target, daemon: SimpleNamespace(start=target)):
+            player._play_current()
+
+        self.assertEqual(
+            [command for command in commands if command[0] == "loadfile"],
+            [["loadfile", f"variant-{index}", "replace"] for index in range(3)],
+        )
+        self.assertEqual(
+            [command for command in commands if command[0] == "stop"],
+            [["stop"], ["stop"], ["stop"]],
+        )
+        self.assertEqual(player.next_calls, 1)
+        self.assertEqual(errors, [])
+
+    def run_monitor_once(self, player):
+        def sleep_once(_):
+            if sleep_once.called: raise KeyboardInterrupt
+            sleep_once.called = True
+        sleep_once.called = False
+        with patch.object(backend.time, "sleep", side_effect=sleep_once), \
+             patch.object(backend, "MPV_SOCKET", SimpleNamespace(exists=lambda: True)):
+            with self.assertRaises(KeyboardInterrupt):
+                player._monitor()
+
+    def test_wave_loading_does_not_block_automatic_next_on_idle(self):
+        player = self.make_player()
+        player.mpv = SimpleNamespace(poll=lambda: None)
+        player.had_file = True
+        player.active_ticks = 3
+        player.last_playback_progress_at = backend.time.monotonic()
+        player.state.update(loading=True, loadingKind="wave", position=178)
+        player._mpv_command = lambda command, *args: command[-1] == "idle-active"
+
+        self.run_monitor_once(player)
+
+        self.assertEqual(player.next_calls, 1)
+
+    def test_monitor_recognizes_playback_before_three_seconds(self):
+        player = self.make_player()
+        player.mpv = SimpleNamespace(poll=lambda: None)
+        player.had_file = False
+        player.active_ticks = 0
+        player.last_playback_position = 0.0
+        player.last_playback_progress_at = backend.time.monotonic()
+        player.state.update(loading=False, loadingKind="")
+        player.volume = 70
+        player.muted = False
+        player._publish_mpris = lambda: None
+        values = {"idle-active": False, "pause": False, "time-pos": 1,
+                  "duration": 180, "volume": 70, "mute": False}
+        player._mpv_command = lambda command, *args: values[command[-1]]
+
+        self.run_monitor_once(player)
+
+        self.assertTrue(player.had_file)
+
+    def test_stalled_active_stream_is_reopened_without_skipping(self):
+        player = self.make_player()
+        player.mpv = SimpleNamespace(poll=lambda: None)
+        player.had_file = True
+        player.active_ticks = 3
+        player.last_playback_position = 35.0
+        player.last_playback_progress_at = backend.time.monotonic() - backend.AUDIO_STALL_TIMEOUT - 1
+        player.state.update(loading=False, loadingKind="", position=35)
+        player.volume = 70
+        player.muted = False
+        reopened = []
+        player._play_current = lambda **kwargs: reopened.append(kwargs)
+        values = {"idle-active": False, "pause": False, "time-pos": 35,
+                  "duration": 180, "volume": 70, "mute": False}
+        player._mpv_command = lambda command, *args: values[command[-1]]
+
+        self.run_monitor_once(player)
+
+        self.assertEqual(reopened, [{"resume_position": 35}])
+        self.assertEqual(player.next_calls, 0)
+
+    def test_radio_batch_hands_loading_to_next_track(self):
+        player = self.make_player()
+        player.queue_generation = 0
+        player.radio_extending = False
+        player.radio_advance_pending = False
+        player.telemetry_queue = queue.Queue()
+        player.state.update(loading=True, loadingKind="wave", loadingStage="")
+        next_track = SimpleNamespace(id="43", duration_ms=120_000)
+        getattr(player, "client").radio_result = SimpleNamespace(
+            sequence=[SimpleNamespace(track=next_track)], batch_id="next-batch")
+        observed = []
+
+        def play_current(resume_position=0, start_paused=False, initial_url=""):
+            observed.append((player.state["loadingKind"], player.index,
+                             player.queue_revision, len(player.queue)))
+            player.state.update(loading=False, loadingKind="", loadingStage="")
+
+        player._play_current = play_current
+        with patch.object(backend.threading, "Thread",
+                          side_effect=lambda target, daemon: SimpleNamespace(start=target)):
+            player._extend_radio(advance=True)
+
+        self.assertEqual(observed, [("track", 1, 1, 2)])
+        self.assertFalse(player.state["loading"])
+        self.assertEqual(player.state["loadingKind"], "")
+        self.assertEqual(player.radio_track_batches["43"], "next-batch")
 
     def test_radio_start_uses_best_effort_queue(self):
         player = self.make_player()

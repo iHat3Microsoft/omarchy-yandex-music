@@ -63,6 +63,9 @@ LIBRARY_PAGE_SIZE = 50
 COLLECTION_CACHE_TTL = 10 * 60
 COLLECTION_CACHE_MAX_ENTRIES = 8
 RATE_LIMIT_DELAYS = (2, 5, 10)
+AUDIO_STREAM_ATTEMPTS = 3
+AUDIO_STREAM_TIMEOUT = 5
+AUDIO_STALL_TIMEOUT = 20
 RATE_LIMIT_MESSAGE = "Яндекс Музыка временно ограничила запросы. Подождите минуту и повторите."
 PLAYBACK_REPORT_FROM = "desktop_win-home-playlist_of_the_day-playlist-default"
 RADIO_REPORT_FROM = "mobile-radio-user-default"
@@ -429,6 +432,8 @@ class Player:
         self.mpv: subprocess.Popen | None = None
         self.had_file = False
         self.active_ticks = 0
+        self.last_playback_progress_at = time.monotonic()
+        self.last_playback_position = 0.0
         self.play_generation = 0
         self.consecutive_failures = 0
         self.last_saved_at = 0.0
@@ -1096,7 +1101,8 @@ class Player:
 
     def _loading(self, function: Callable[[], None], kind: str) -> None:
         with self.lock:
-            if not self.state["authenticated"] or self.state["loading"]: return
+            if not self.state["authenticated"]: return
+            if self.state["loading"] and self.state["loadingKind"] != "track": return
             self.state.update(loading=True, loadingKind=kind, loadingStage="", error="")
         threading.Thread(target=function, daemon=True).start()
 
@@ -1344,7 +1350,13 @@ class Player:
                             self.radio_track_batches[self._track_id(track)] = self.radio_batch_id
                     should_advance = self.radio_advance_pending and bool(fresh) and self.index >= old_length - 1
                     failed_to_advance = self.radio_advance_pending and not fresh and self.index >= old_length - 1
-                    if should_advance: self.index = old_length
+                    if should_advance:
+                        self.index = old_length
+                        # The batch is ready; the new track now owns loading.
+                        # Otherwise "wave" remains set even after audio starts,
+                        # hiding the queue behind the loading placeholder.
+                        if self.state.get("loadingKind") in ("wave", "radio"):
+                            self.state.update(loading=True, loadingKind="track", loadingStage="")
                     self.radio_advance_pending = False
                     self.radio_extending = False
                 if failed_to_advance:
@@ -3509,7 +3521,7 @@ class Player:
                 "artUrl": self._cover_url(track),
                 "duration": self._int(getattr(track, "duration_ms", 0)) // 1000}
 
-    def _url(self, track: Any, *, update_loading: bool = True) -> str:
+    def _url(self, track: Any, *, variant: int = 0, update_loading: bool = True) -> str:
         infos = self._api_call(
             lambda: track.get_download_info(get_direct_links=True),
             update_loading=update_loading) or []
@@ -3518,8 +3530,9 @@ class Player:
             infos.sort(key=lambda x: (x.bitrate_in_kbps or 10_000, x.codec not in ("aac", "mp3")))
         else:
             infos.sort(key=lambda x: (x.codec in ("mp3", "aac"), x.bitrate_in_kbps or 0), reverse=True)
-        return infos[0].direct_link or self._api_call(
-            infos[0].get_direct_link, update_loading=update_loading)
+        info = infos[variant % len(infos)]
+        return info.direct_link or self._api_call(
+            info.get_direct_link, update_loading=update_loading)
 
     def _ensure_mpv(self) -> None:
         if self.mpv and self.mpv.poll() is None and MPV_SOCKET.exists(): return
@@ -3547,7 +3560,7 @@ class Player:
         if response.get("error") != "success": raise RuntimeError(response.get("error", "mpv error"))
         return response.get("data")
 
-    def _wait_mpv_ready(self, timeout: float = 8) -> None:
+    def _wait_mpv_ready(self, timeout: float = AUDIO_STREAM_TIMEOUT) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
@@ -3567,16 +3580,22 @@ class Player:
             self.play_generation += 1; generation = self.play_generation
         def load() -> None:
             last_error: Exception | None = None
-            for attempt in range(3):
+            for attempt in range(AUDIO_STREAM_ATTEMPTS):
                 try:
                     with self.lock:
                         if generation != self.play_generation or not (0 <= self.index < len(self.queue)): return
                         track = self.queue[self.index]
-                        self.state.update(loading=True, loadingKind="track", error="")
+                        if self.state.get("loadingKind", "") in ("", "track"):
+                            self.state.update(loading=True, loadingKind="track", error="")
                     meta = self._metadata(track)
-                    with self.lock: self.state["loadingStage"] = "downloadInfo"
-                    url = initial_url if attempt == 0 and initial_url else self._url(track)
-                    with self.lock: self.state["loadingStage"] = "audioStream"
+                    with self.lock:
+                        if self.state.get("loadingKind") == "track":
+                            self.state["loadingStage"] = "downloadInfo"
+                    url = initial_url if attempt == 0 and initial_url else self._url(
+                        track, variant=attempt)
+                    with self.lock:
+                        if self.state.get("loadingKind") == "track":
+                            self.state["loadingStage"] = "audioStream"
                     self._mpv_command(["loadfile", url, "replace"])
                     self._wait_mpv_ready()
                     self._mpv_command(["set_property", "force-media-title", f"{meta['title']} — {meta['artist']}"])
@@ -3589,24 +3608,40 @@ class Player:
                     with self.lock:
                         if generation != self.play_generation: return
                         track_id = self._track_id(track)
-                        self.state.update(meta); self.state.update(playing=not start_paused,
-                            stopped=False, loading=False, loadingKind="", loadingStage="",
+                        self.state.update(meta)
+                        self.state.update(playing=not start_paused, stopped=False,
                             position=position, positionObservedAt=position_observed_at,
                             duration=self._int(getattr(track, "duration_ms", 0)) // 1000,
                             liked=track_id in self.liked_ids, disliked=track_id in self.disliked_ids,
                             error="")
+                        if self.state.get("loadingKind") == "track":
+                            self.state.update(loading=False, loadingKind="", loadingStage="")
                         # The monitor marks the file active only after mpv has
                         # actually left its transient idle state. This avoids
                         # skipping a restored track while it is still opening.
-                        self.had_file = False; self.active_ticks = 0; self.consecutive_failures = 0
+                        self.had_file = True; self.active_ticks = 0; self.consecutive_failures = 0
+                        self.last_playback_position = position
+                        self.last_playback_progress_at = time.monotonic()
                     if not start_paused: self._begin_playback_reporting(track)
                     self._publish_mpris(); self._notify_track(meta)
                     self._save_state(True); self._maybe_extend_collection(); return
                 except Exception as exc:
-                    last_error = exc; time.sleep(1.5 * (attempt + 1))
-            with self.lock: self.consecutive_failures += 1
-            self._set_error(f"Не удалось воспроизвести трек после 3 попыток: {last_error}")
-            if self.queue and self.consecutive_failures < min(3, len(self.queue)): self.next()
+                    last_error = exc
+                    with self.lock:
+                        if generation != self.play_generation:
+                            return
+                    try:
+                        self._mpv_command(["stop"], False)
+                    except Exception:
+                        pass
+            with self.lock:
+                self.consecutive_failures += 1
+                should_advance = bool(self.queue) and self.consecutive_failures < len(self.queue)
+            if should_advance:
+                self.next()
+                return
+            self._set_error(
+                f"Не удалось воспроизвести трек после {AUDIO_STREAM_ATTEMPTS} попыток: {last_error}")
         threading.Thread(target=load, daemon=True).start()
 
     def _notification_cover(self, url: str) -> str:
@@ -3779,6 +3814,8 @@ class Player:
         with self.lock:
             self.had_file = False
             self.active_ticks = 0
+            self.last_playback_progress_at = time.monotonic()
+            self.last_playback_position = 0.0
             self.state.update(playing=False, stopped=True, position=0.0,
                               positionObservedAt=time.time())
         self._publish_mpris(); self._save_state(True)
@@ -3795,7 +3832,7 @@ class Player:
             try:
                 if not self.mpv or self.mpv.poll() is not None or not MPV_SOCKET.exists(): continue
                 with self.lock:
-                    if self.state["loading"]: continue
+                    if self.state.get("loadingKind") == "track" and self.state["loading"]: continue
                 idle = bool(self._mpv_command(["get_property", "idle-active"], False))
                 if idle:
                     with self.lock:
@@ -3804,6 +3841,7 @@ class Player:
                         duration = self._int(self.state["duration"])
                         should_play = bool(self.state["playing"])
                         self.had_file = False; self.active_ticks = 0
+                        self.last_playback_progress_at = time.monotonic()
                         self._update_playback_clock_locked(False)
                     if was_active:
                         if duration > 0 and position >= duration - 5:
@@ -3823,13 +3861,23 @@ class Player:
                     self._mpv_command(["get_property", "volume"], False) or self.volume))
                 muted = bool(self._mpv_command(["get_property", "mute"], False))
                 with self.lock:
+                    now = time.monotonic()
+                    if paused or position > self.last_playback_position + .2:
+                        self.last_playback_progress_at = now
+                    stalled = (self.had_file and not paused and not self.state.get("stopped")
+                               and now - self.last_playback_progress_at >= AUDIO_STALL_TIMEOUT)
+                    self.last_playback_position = position
                     self.active_ticks += 1
-                    self.had_file = self.active_ticks >= 2 and position >= 3
-                    self._update_playback_clock_locked(not paused)
+                    self.had_file = True
+                    self._update_playback_clock_locked(not paused and not stalled)
                     self.volume = volume; self.muted = muted
-                    self.state.update(playing=not paused, position=position,
+                    self.state.update(playing=not paused and not stalled, position=position,
                                       positionObservedAt=position_observed_at,
                                       duration=duration, volume=volume, muted=muted)
+                    if stalled: self.last_playback_progress_at = now
+                if stalled:
+                    self._play_current(resume_position=int(position))
+                    continue
                 self._publish_mpris(); self._save_state()
             except Exception:
                 continue

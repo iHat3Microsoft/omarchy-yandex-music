@@ -11,6 +11,12 @@ All notable changes to this project are documented here. The format follows [Kee
 - Repository coding-agent instructions and task artifacts are no longer shipped in the plugin checkout
 - Every Qt Quick `Text` element now forces `Text.PlainText`, preventing API, backend, error, catalogue, playlist, track, artist, album, lyrics, writer, and user-controlled strings from being interpreted as rich text or loading referenced resources
 
+### Fixed
+
+- Playback retries now rotate through Yandex Music's available download variants instead of requesting the same unreachable CDN stream three times; each stalled attempt is cancelled after five seconds, exhausted tracks advance without flashing an error, and a final error appears only after every queued track fails
+- Opening My Likes or another Library collection is no longer blocked by an audio stream that is still connecting; collection loading owns its independent UI state and playback completion cannot replace it with the old queue
+- When My Wave adds a new batch and starts its next track, loading now transfers to that track and clears after playback starts instead of leaving the queue hidden behind a permanent spinner
+
 ## [0.8.1] - 2026-09-05
 
 ### Security
