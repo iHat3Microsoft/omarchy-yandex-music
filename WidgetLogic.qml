@@ -20,7 +20,10 @@ Item {
   readonly property bool hasTrack: String(data.title || "") !== ""
   readonly property bool loading: bootstrapProcess.running || data.loading === true || data.connecting === true || data.restoring === true
   readonly property string error: bootstrapError || statusError || String(data.error || "")
-  readonly property bool playing: data.playing === true
+  property var optimisticPlaying: null
+  property var optimisticLiked: null
+  readonly property bool playing: optimisticPlaying !== null ? Boolean(optimisticPlaying) : (data.playing === true)
+  readonly property bool liked: optimisticLiked !== null ? Boolean(optimisticLiked) : (data.liked === true)
   property var actionQueue: []
   readonly property string shortTitle: {
     var title = String(data.title || "")
@@ -63,6 +66,11 @@ Item {
     lyricsProcess.running = true
   }
   function action(name, argument) {
+    if (name === "pause" && root.hasTrack) {
+      optimisticPlaying = !root.playing
+    } else if (name === "like" && root.hasTrack) {
+      optimisticLiked = !root.liked
+    }
     var args = [cli, name]
     if (argument !== undefined && argument !== null) args.push(String(argument))
     if (actionProcess.running) {
@@ -134,13 +142,25 @@ Item {
   Process {
     id: actionProcess
     command: []
+    stdout: StdioCollector { id: actionOut; waitForEnd: true }
     onExited: {
+      if (actionOut.text) {
+        try {
+          var res = JSON.parse(actionOut.text || "{}")
+          if (res.title !== undefined) {
+            root.data = res
+            root.optimisticPlaying = null
+            root.optimisticLiked = null
+          }
+        } catch (e) {}
+      }
       if (actionQueue.length > 0) {
         var nextArgs = actionQueue.shift()
         actionProcess.command = nextArgs
         actionProcess.running = true
         return
       }
+      settle.interval = 60
       settle.restart()
     }
   }
