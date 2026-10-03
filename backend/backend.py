@@ -35,6 +35,8 @@ TOKEN_FILE = CONFIG / "token.json"
 STATE_FILE = CONFIG / "state.json"
 PREFERENCES_FILE = CONFIG / "preferences.json"
 LYRICS_CACHE_DIR = CONFIG / "lyrics"
+AUDIO_CACHE_DIR = CONFIG / "audio_cache"
+AUDIO_CACHE_UNLIKED_LIMIT = 30
 DEFAULT_PREFERENCES = {
     "autoResume": True,
     "restoreQueue": True,
@@ -408,6 +410,8 @@ class Player:
         self.lyrics_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.lyrics_cache_dir: Path | None = LYRICS_CACHE_DIR
         self.lyrics_loading: set[str] = set()
+        self.audio_cache_dir: Path | None = AUDIO_CACHE_DIR
+        self._audio_downloading: set[str] = set()
         self._url_cache: dict[str, tuple[str, float]] = {}
         self.lyrics_generation = 0
         self.track_info_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -1222,6 +1226,8 @@ class Player:
                     self.state.update(liked=not was_liked,
                                       disliked=track_id in self.disliked_ids)
                 self.state["error"] = ""
+            if not was_liked:
+                self._cache_audio_background(track, track_id)
             self._save_state(True)
         except Exception as exc:
             self._set_error(f"Не удалось изменить отметку «Мне нравится»: {exc}")
@@ -3617,6 +3623,74 @@ class Player:
                 cache.pop(next(iter(cache)), None)
         return direct
 
+    def _audio_cache_path(self, track_id: str) -> Path | None:
+        if not track_id or not getattr(self, "audio_cache_dir", None): return None
+        return self.audio_cache_dir / f"{track_id}.mp3"
+
+    def _get_cached_audio(self, track_id: str) -> str | None:
+        path = self._audio_cache_path(track_id)
+        if path and path.exists():
+            try:
+                if path.stat().st_size > 102400:
+                    try: os.utime(path, None)
+                    except Exception: pass
+                    return str(path)
+            except Exception: pass
+        return None
+
+    def _prune_audio_cache(self) -> None:
+        cache_dir = getattr(self, "audio_cache_dir", None)
+        if not cache_dir or not cache_dir.exists(): return
+        try:
+            unliked = []
+            for item in cache_dir.glob("*.mp3"):
+                tid = item.stem
+                if hasattr(self, "liked_ids") and tid in self.liked_ids:
+                    continue
+                try: unliked.append((item.stat().st_mtime, item))
+                except Exception: pass
+            unliked.sort()
+            while len(unliked) > AUDIO_CACHE_UNLIKED_LIMIT:
+                _, oldest = unliked.pop(0)
+                try: oldest.unlink(missing_ok=True)
+                except Exception: pass
+        except Exception: pass
+
+    def _cache_audio_background(self, track: Any, track_id: str) -> None:
+        if not track_id or not getattr(self, "audio_cache_dir", None): return
+        downloading = getattr(self, "_audio_downloading", None)
+        if downloading is not None:
+            with self.lock:
+                if track_id in downloading: return
+                downloading.add(track_id)
+
+        def worker():
+            try:
+                target = self._audio_cache_path(track_id)
+                if not target: return
+                if target.exists() and target.stat().st_size > 102400: return
+                url = self._url(track, update_loading=False)
+                if not url or url.startswith("file://") or url.startswith("/"): return
+                self.audio_cache_dir.mkdir(parents=True, exist_ok=True)
+                temp_file = target.with_suffix(".tmp")
+                with requests.get(url, stream=True, timeout=25) as resp:
+                    resp.raise_for_status()
+                    with temp_file.open("wb") as out:
+                        for chunk in resp.iter_content(chunk_size=65536):
+                            if chunk: out.write(chunk)
+                if temp_file.exists() and temp_file.stat().st_size > 102400:
+                    os.replace(temp_file, target)
+                    self._prune_audio_cache()
+                else:
+                    temp_file.unlink(missing_ok=True)
+            except Exception: pass
+            finally:
+                if downloading is not None:
+                    with self.lock:
+                        downloading.discard(track_id)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _prefetch_adjacent_tracks(self) -> None:
         with self.lock:
             next_idx = self.index + 1
@@ -3634,15 +3708,19 @@ class Player:
                 except Exception:
                     pass
                 try:
-                    cache = getattr(self, "_url_cache", None)
-                    if cache is not None and tid not in cache:
-                        url = self._url(t, update_loading=False)
-                        if url:
-                            try:
-                                # Pre-warm connection / fetch audio header & first chunks
-                                requests.get(url, headers={"Range": "bytes=0-131072"}, timeout=5).close()
-                            except Exception:
-                                pass
+                    if self._get_cached_audio(tid):
+                        continue
+                    if hasattr(self, "liked_ids") and tid in self.liked_ids:
+                        self._cache_audio_background(t, tid)
+                    else:
+                        cache = getattr(self, "_url_cache", None)
+                        if cache is not None and tid not in cache:
+                            url = self._url(t, update_loading=False)
+                            if url:
+                                try:
+                                    requests.get(url, headers={"Range": "bytes=0-131072"}, timeout=5).close()
+                                except Exception:
+                                    pass
                 except Exception:
                     pass
         threading.Thread(target=worker, daemon=True).start()
@@ -3702,11 +3780,13 @@ class Player:
                         if self.state.get("loadingKind", "") in ("", "track"):
                             self.state.update(loading=True, loadingKind="track", error="")
                     meta = self._metadata(track)
+                    track_id = self._track_id(track)
+                    cached_audio = self._get_cached_audio(track_id)
                     with self.lock:
                         if self.state.get("loadingKind") == "track":
-                            self.state["loadingStage"] = "downloadInfo"
-                    url = initial_url if attempt == 0 and initial_url else self._url(
-                        track, variant=attempt)
+                            self.state["loadingStage"] = "downloadInfo" if not cached_audio else ""
+                    url = cached_audio or (initial_url if attempt == 0 and initial_url else self._url(
+                        track, variant=attempt))
                     with self.lock:
                         if self.state.get("loadingKind") == "track":
                             self.state["loadingStage"] = "audioStream"
@@ -3739,6 +3819,7 @@ class Player:
                     if not start_paused: self._begin_playback_reporting(track)
                     self._publish_mpris(); self._notify_track(meta)
                     self._save_state(True); self._maybe_extend_collection()
+                    if not cached_audio: self._cache_audio_background(track, track_id)
                     self._prefetch_adjacent_tracks()
                     return
                 except Exception as exc:

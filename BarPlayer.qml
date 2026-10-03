@@ -34,6 +34,7 @@ Item {
   }
   readonly property color foreground: bar ? bar.barForeground : Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
+  readonly property Item coverItem: cover
   readonly property string label: {
     if (hasError) return "Ошибка Яндекс Музыки — нажмите, чтобы открыть"
     if (loading && !hasTrack) return "Яндекс Музыка загружается…"
