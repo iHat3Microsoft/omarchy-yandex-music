@@ -1,6 +1,19 @@
-# Yandex Music for Omarchy
+# Yandex Music for Omarchy (Synced Lyrics & Gesture Controls Fork)
 
 [Русская версия](README.ru.md)
+
+> **Fork Features / Отличия форка:**
+> This fork brings the core experience from [yamusic-waybar-lyrics](https://github.com/iHat3Microsoft/yamusic-waybar-lyrics) into the Omarchy Quickshell environment:
+> - **Synced lyrics directly in the bar**: Real-time karaoke-style lyric lines displayed right next to the track title with smooth Bezier-curve fade & slide transitions.
+> - **Waybar-style mouse gesture controls**:
+>   - **Left Click**: Play / Pause toggle
+>   - **Right Click**: Next track
+>   - **Middle Click**: Previous track
+>   - **Scroll Up**: Jump / Seek to the **next synced lyric line** (or +5s fallback)
+>   - **Scroll Down**: Jump / Seek to the **previous synced lyric line** (or -5s fallback)
+> - **Interactive Like Button**: Dedicated heart icon (`󰋕` / `󰋑`) directly on the bar with instant like toggling and theme accent color.
+> - **Compact, clean status bar**: Transport buttons replaced with intuitive gestures, leaving maximum space for artwork, track title, and synced lyrics.
+> - **Quick panel toggle**: Left-clicking the cover art opens the full Omarchy popup player.
 
 A native Yandex Music mini-player for the [Omarchy](https://omarchy.org/) shell. The browser is used only for Yandex Device OAuth; playback runs in the background through `mpv`.
 

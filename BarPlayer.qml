@@ -14,7 +14,6 @@ Item {
   readonly property bool hasError: logic ? logic.error !== "" : false
   property real loaderAngle: 0
   readonly property var preferences: logic && logic.data.preferences ? logic.data.preferences : ({})
-  readonly property bool showControls: preferences.showControls === undefined ? true : Boolean(preferences.showControls)
   readonly property bool showArtist: preferences.showArtist === undefined ? true : Boolean(preferences.showArtist)
   readonly property bool showTitle: preferences.showTitle === undefined ? true : Boolean(preferences.showTitle)
   readonly property bool showCover: preferences.showCover === undefined ? true : Boolean(preferences.showCover)
@@ -23,9 +22,15 @@ Item {
   readonly property string longTitleMode: String(preferences.longTitleMode || "truncate")
   readonly property real informationWidth: {
     var mode = String(preferences.barWidth || "normal")
-    if (mode === "compact") return Style.space(170)
-    if (mode === "wide") return Style.space(310)
-    return Style.space(230)
+    if (mode === "compact") return Style.space(130)
+    if (mode === "wide") return Style.space(240)
+    return Style.space(180)
+  }
+  readonly property real lyricsWidth: {
+    var mode = String(preferences.barWidth || "normal")
+    if (mode === "compact") return Style.space(180)
+    if (mode === "wide") return Style.space(340)
+    return Style.space(250)
   }
   readonly property color foreground: bar ? bar.barForeground : Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
@@ -38,82 +43,61 @@ Item {
     return artist ? artist + " — " + title : title
   }
 
+  // Position clock for smooth lyric synchronization and progress interpolation
+  property double positionClockMs: Date.now()
+  readonly property real displayPosition: {
+    var pos = Number(logic && logic.data ? logic.data.position || 0 : 0)
+    var observedAt = Number(logic && logic.data ? logic.data.positionObservedAt || 0 : 0)
+    if (root.playing && observedAt > 0) {
+      var elapsed = Math.max(0, positionClockMs / 1000 - observedAt)
+      pos += Math.min(3, elapsed)
+    }
+    var dur = Number(logic && logic.data ? logic.data.duration || 0 : 0)
+    return Math.max(0, dur > 0 ? Math.min(dur, pos) : pos)
+  }
+
+  Timer {
+    id: positionTimer
+    interval: 80
+    running: root.playing && root.hasTrack
+    repeat: true
+    onTriggered: root.positionClockMs = Date.now()
+  }
+
+  readonly property var lyricsLines: logic && logic.lyricsData && logic.lyricsData.lines ? logic.lyricsData.lines : []
+  readonly property bool syncedLyricsAvailable: logic && logic.lyricsData && logic.lyricsData.synced === true && lyricsLines.length > 0
+
+  function currentLyricsIndex() {
+    if (!syncedLyricsAvailable) return -1
+    var current = -1
+    var pos = root.displayPosition
+    for (var i = 0; i < lyricsLines.length; i++) {
+      var t = Number(lyricsLines[i].time || 0)
+      if (t <= pos + 0.05) current = i
+      else break
+    }
+    return current
+  }
+
+  readonly property int activeLyricIndex: currentLyricsIndex()
+  readonly property string targetLyricText: {
+    if (!syncedLyricsAvailable) return ""
+    var idx = activeLyricIndex
+    if (idx >= 0 && idx < lyricsLines.length) {
+      return String(lyricsLines[idx].text || "").trim()
+    }
+    return ""
+  }
+
   implicitWidth: controls.width + Style.space(12)
   implicitHeight: bar ? bar.barSize : Style.bar.sizeHorizontal
 
   Row {
     id: controls
     anchors.centerIn: parent
-    spacing: Style.space(5)
+    spacing: Style.space(6)
 
-    Item {
-      visible: root.showControls
-      width: Style.space(34); height: root.implicitHeight
-      opacity: root.hasTrack ? 1 : .35
-      Text {
-        textFormat: Text.PlainText
-        anchors.centerIn: parent; text: "󰒮"; color: root.foreground
-        font.family: root.fontFamily; font.pixelSize: 20
-      }
-      MouseArea {
-        anchors.fill: parent; enabled: root.hasTrack; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-        onClicked: root.logic.action("previous")
-        onEntered: if (root.bar) root.bar.showTooltip(parent, "Предыдущий трек")
-        onExited: if (root.bar) root.bar.hideTooltip(parent)
-      }
-    }
-
-    Item {
-      visible: root.showControls
-      width: Style.space(34); height: root.implicitHeight
-      opacity: root.hasTrack ? 1 : .35
-      Text {
-        textFormat: Text.PlainText
-        anchors.centerIn: parent; text: root.playing ? "󰏤" : "󰐊"; color: root.foreground
-        font.family: root.fontFamily; font.pixelSize: 20
-      }
-      MouseArea {
-        anchors.fill: parent; enabled: root.hasTrack; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-        onClicked: root.logic.action("pause")
-        onEntered: if (root.bar) root.bar.showTooltip(parent, root.playing ? "Пауза" : "Продолжить")
-        onExited: if (root.bar) root.bar.hideTooltip(parent)
-      }
-    }
-
-    Item {
-      visible: root.showControls
-      width: Style.space(34); height: root.implicitHeight
-      opacity: root.hasTrack ? 1 : .35
-      Text {
-        textFormat: Text.PlainText
-        anchors.centerIn: parent; text: "󰒭"; color: root.foreground
-        font.family: root.fontFamily; font.pixelSize: 20
-      }
-      MouseArea {
-        anchors.fill: parent; enabled: root.hasTrack; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-        onClicked: root.logic.action("next")
-        onEntered: if (root.bar) root.bar.showTooltip(parent, "Следующий трек")
-        onExited: if (root.bar) root.bar.hideTooltip(parent)
-      }
-    }
-
-    Item {
-      visible: !root.showCover && !labelSlot.visible
-      width: Style.space(24); height: root.implicitHeight
-      Text {
-        textFormat: Text.PlainText
-        anchors.centerIn: parent
-        text: "󰝚"; color: root.foreground
-        font.family: root.fontFamily; font.pixelSize: Style.font.icon
-      }
-      MouseArea {
-        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-        onClicked: if (root.logic) root.logic.toggle()
-        onEntered: if (root.bar) root.bar.showTooltip(parent, "Открыть Яндекс Музыку")
-        onExited: if (root.bar) root.bar.hideTooltip(parent)
-      }
-    }
-
+    // Album art / Cover image
     BorderSurface {
       id: cover
       visible: root.showCover
@@ -123,6 +107,7 @@ Item {
         : (root.coverShape === "square" ? 0 : Style.space(2))
       color: Style.normalFillFor(root.foreground, Color.accent)
       borderSpec: Border.none()
+
       Rectangle {
         id: coverMask
         anchors.fill: parent
@@ -190,8 +175,63 @@ Item {
         text: "󰀪"; color: Color.urgent
         font.family: root.fontFamily; font.pixelSize: Style.font.caption
       }
+
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: if (root.logic) root.logic.toggle()
+        onEntered: if (root.bar) root.bar.showTooltip(parent, "Открыть Яндекс Музыку")
+        onExited: if (root.bar) root.bar.hideTooltip(parent)
+      }
     }
 
+    // Fallback icon when cover is hidden
+    Item {
+      visible: !root.showCover && !labelSlot.visible
+      width: Style.space(24); height: root.implicitHeight
+      Text {
+        textFormat: Text.PlainText
+        anchors.centerIn: parent
+        text: "󰝚"; color: root.foreground
+        font.family: root.fontFamily; font.pixelSize: Style.font.icon
+      }
+      MouseArea {
+        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+        onClicked: if (root.logic) root.logic.toggle()
+        onEntered: if (root.bar) root.bar.showTooltip(parent, "Открыть Яндекс Музыку")
+        onExited: if (root.bar) root.bar.hideTooltip(parent)
+      }
+    }
+
+    // Like Button (Empty or Full Heart)
+    Item {
+      id: likeButton
+      visible: root.hasTrack
+      width: Style.space(26); height: root.implicitHeight
+
+      Text {
+        textFormat: Text.PlainText
+        anchors.centerIn: parent
+        text: root.logic && root.logic.data && root.logic.data.liked ? "󰋑" : "󰋕"
+        color: root.logic && root.logic.data && root.logic.data.liked ? Color.accent : root.foreground
+        opacity: root.logic && root.logic.data && root.logic.data.liked ? 1.0 : (likeMouseArea.containsMouse ? 0.9 : 0.6)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.icon
+      }
+
+      MouseArea {
+        id: likeMouseArea
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: if (root.logic) root.logic.action("like")
+        onEntered: if (root.bar) root.bar.showTooltip(parent, root.logic && root.logic.data && root.logic.data.liked ? "Удалить из понравившихся" : "Мне нравится")
+        onExited: if (root.bar) root.bar.hideTooltip(parent)
+      }
+    }
+
+    // Track Title / Artist Label Slot
     Item {
       id: labelSlot
       visible: root.showArtist || root.showTitle
@@ -241,24 +281,202 @@ Item {
         function onRunningChanged() { if (!trackInfoMarquee.running) trackInfoLabel.x = 0 }
       }
     }
+
+    // Separator between Title and Lyrics
+    Item {
+      id: separatorItem
+      visible: root.hasTrack && root.syncedLyricsAvailable
+      width: Style.space(10)
+      height: root.implicitHeight
+
+      Text {
+        textFormat: Text.PlainText
+        anchors.centerIn: parent
+        text: "│"
+        color: root.foreground
+        opacity: 0.25
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+      }
+    }
+
+    // Synced Lyrics Slot with Smooth Bezier-Curve Transition Animations
+    Item {
+      id: lyricsSlot
+      visible: root.hasTrack && root.syncedLyricsAvailable
+      width: root.lyricsWidth
+      height: root.implicitHeight
+      clip: true
+
+      property string currentDisplayedText: ""
+      property string pendingText: root.targetLyricText
+
+      onPendingTextChanged: {
+        if (pendingText === currentDisplayedText) return
+        if (lyricTransition.running) {
+          lyricTransition.stop()
+        }
+        if (currentDisplayedText === "") {
+          currentDisplayedText = pendingText
+          lyricLabel.opacity = 1
+          lyricLabel.y = (lyricsSlot.height - lyricLabel.implicitHeight) / 2
+        } else {
+          lyricTransition.restart()
+        }
+      }
+
+      Text {
+        textFormat: Text.PlainText
+        id: lyricLabel
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: (parent.height - implicitHeight) / 2
+        width: Math.min(implicitWidth, parent.width)
+        text: lyricsSlot.currentDisplayedText !== "" ? lyricsSlot.currentDisplayedText : "♪"
+        color: lyricsSlot.currentDisplayedText !== "" ? Color.accent : root.foreground
+        opacity: lyricsSlot.currentDisplayedText !== "" ? 1.0 : 0.4
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        font.weight: Font.Medium
+        elide: Text.ElideRight
+      }
+
+      SequentialAnimation {
+        id: lyricTransition
+        // Smooth slide up & fade out old line
+        ParallelAnimation {
+          NumberAnimation {
+            target: lyricLabel
+            property: "opacity"
+            to: 0
+            duration: 120
+            easing.type: Easing.InQuad
+          }
+          NumberAnimation {
+            target: lyricLabel
+            property: "y"
+            to: ((lyricsSlot.height - lyricLabel.implicitHeight) / 2) - Style.space(6)
+            duration: 120
+            easing.type: Easing.InQuad
+          }
+        }
+        ScriptAction {
+          script: {
+            lyricsSlot.currentDisplayedText = lyricsSlot.pendingText
+            lyricLabel.y = ((lyricsSlot.height - lyricLabel.implicitHeight) / 2) + Style.space(6)
+          }
+        }
+        // Smooth slide into place & fade in new line using Bezier (OutCubic) curve
+        ParallelAnimation {
+          NumberAnimation {
+            target: lyricLabel
+            property: "opacity"
+            to: lyricsSlot.currentDisplayedText !== "" ? 1.0 : 0.4
+            duration: 220
+            easing.type: Easing.OutCubic
+          }
+          NumberAnimation {
+            target: lyricLabel
+            property: "y"
+            to: (lyricsSlot.height - lyricLabel.implicitHeight) / 2
+            duration: 220
+            easing.type: Easing.OutCubic
+          }
+        }
+      }
+    }
   }
 
+  // Mouse Area covering Track Title and Lyrics area with Waybar-lyrics mouse controls:
+  // - Left click: Play / Pause toggle
+  // - Right click: Next track
+  // - Middle click: Previous track
+  // - Wheel Up: Seek next lyric line (or +5s)
+  // - Wheel Down: Seek previous lyric line (or -5s)
   MouseArea {
-    visible: cover.visible || labelSlot.visible
-    x: controls.x + (cover.visible ? cover.x : labelSlot.x)
+    id: playbackMouseArea
+    visible: labelSlot.visible || (lyricsSlot && lyricsSlot.visible)
+    x: controls.x + labelSlot.x
     y: 0
-    width: cover.visible && labelSlot.visible
-      ? labelSlot.x + labelSlot.width - cover.x
-      : (cover.visible ? cover.width : labelSlot.width)
+    width: {
+      var w = labelSlot.width
+      if (separatorItem.visible) w += separatorItem.width + controls.spacing
+      if (lyricsSlot.visible) w += lyricsSlot.width + controls.spacing
+      return w
+    }
     height: root.height
     z: 10
     hoverEnabled: true
     cursorShape: Qt.PointingHandCursor
-    onClicked: if (root.logic) root.logic.toggle()
-    onEntered: if (root.bar) root.bar.showTooltip(root, root.label)
+    acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+
+    onClicked: function(mouse) {
+      if (!root.logic) return
+      if (mouse.button === Qt.LeftButton) {
+        root.logic.action("pause")
+      } else if (mouse.button === Qt.RightButton) {
+        root.logic.action("next")
+      } else if (mouse.button === Qt.MiddleButton) {
+        root.logic.action("previous")
+      }
+    }
+
+    onWheel: function(wheel) {
+      if (!root.logic || !root.hasTrack) return
+      var lyrics = root.lyricsLines
+      var pos = root.displayPosition
+      var dur = Number(root.logic.data ? root.logic.data.duration || 0 : 0)
+
+      if (wheel.angleDelta.y > 0) {
+        // Scroll Up -> Seek next lyric line
+        if (root.syncedLyricsAvailable && lyrics.length > 0) {
+          var nextTime = -1
+          for (var i = 0; i < lyrics.length; i++) {
+            var t = Number(lyrics[i].time || 0)
+            if (t > pos + 0.3) {
+              nextTime = t
+              break
+            }
+          }
+          if (nextTime >= 0) {
+            root.logic.action("seek", Math.round(nextTime))
+            return
+          }
+        }
+        var targetForward = Math.min(dur > 0 ? dur : pos + 5, pos + 5)
+        root.logic.action("seek", Math.round(targetForward))
+      } else if (wheel.angleDelta.y < 0) {
+        // Scroll Down -> Seek previous lyric line
+        if (root.syncedLyricsAvailable && lyrics.length > 0) {
+          var prevTime = -1
+          for (var j = lyrics.length - 1; j >= 0; j--) {
+            var pt = Number(lyrics[j].time || 0)
+            if (pt < pos - 0.5) {
+              prevTime = pt
+              break
+            }
+          }
+          if (prevTime >= 0) {
+            root.logic.action("seek", Math.round(prevTime))
+            return
+          }
+        }
+        var targetBack = Math.max(0, pos - 5)
+        root.logic.action("seek", Math.round(targetBack))
+      }
+    }
+
+    onEntered: if (root.bar) {
+      var tooltip = root.label
+      if (root.targetLyricText !== "") {
+        tooltip += "\n[Текст] " + root.targetLyricText
+      }
+      tooltip += "\nЛКМ: Пауза/Плей | ПКМ: След. | СКМ: Пред. | Колесо: Перемотка строк"
+      root.bar.showTooltip(root, tooltip)
+    }
     onExited: if (root.bar) root.bar.hideTooltip(root)
   }
 
+  // Cover loader animation timer
   Timer {
     interval: 16
     repeat: true
@@ -266,13 +484,14 @@ Item {
     onTriggered: root.loaderAngle = (root.loaderAngle + 7.2) % 360
   }
 
+  // Playback Progress Bar (interpolated position)
   Rectangle {
     visible: root.hasTrack && root.showProgress
     anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
     height: Style.space(2); color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, .15)
     Rectangle {
       width: parent.width * (root.logic
-        ? Math.min(1, Number(root.logic.data.position || 0) / Math.max(1, Number(root.logic.data.duration || 1)))
+        ? Math.min(1, root.displayPosition / Math.max(1, Number(root.logic.data.duration || 1)))
         : 0)
       height: parent.height; color: Color.accent
     }
