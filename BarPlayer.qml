@@ -421,6 +421,7 @@ Item {
     }
 
     onWheel: function(wheel) {
+      wheel.accepted = true
       if (!root.logic || !root.hasTrack) return
       var lyrics = root.lyricsLines
       var pos = root.displayPosition
