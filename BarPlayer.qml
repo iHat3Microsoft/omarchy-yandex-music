@@ -176,6 +176,38 @@ Item {
         font.family: root.fontFamily; font.pixelSize: Style.font.caption
       }
 
+      // Smooth darkening overlay when playback is paused
+      Rectangle {
+        id: pauseDimmer
+        anchors.fill: parent
+        radius: cover.radius
+        color: Qt.rgba(0, 0, 0, .45)
+        opacity: (root.hasTrack && !root.playing && !root.loading && !root.hasError) ? 1.0 : 0.0
+        visible: opacity > 0
+        Behavior on opacity {
+          NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+        }
+      }
+
+      // Smooth pause badge overlay
+      Text {
+        textFormat: Text.PlainText
+        anchors.centerIn: parent
+        text: "󰏤"
+        color: "white"
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        opacity: (root.hasTrack && !root.playing && !root.loading && !root.hasError) ? 1.0 : 0.0
+        scale: (root.hasTrack && !root.playing && !root.loading && !root.hasError) ? 1.0 : 0.75
+        visible: opacity > 0
+        Behavior on opacity {
+          NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+        }
+        Behavior on scale {
+          NumberAnimation { duration: 180; easing.type: Easing.OutBack }
+        }
+      }
+
       MouseArea {
         anchors.fill: parent
         hoverEnabled: true
