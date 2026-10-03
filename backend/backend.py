@@ -34,6 +34,7 @@ CONFIG = Path.home() / ".config/omarchy-yandex-music"
 TOKEN_FILE = CONFIG / "token.json"
 STATE_FILE = CONFIG / "state.json"
 PREFERENCES_FILE = CONFIG / "preferences.json"
+LYRICS_CACHE_DIR = CONFIG / "lyrics"
 DEFAULT_PREFERENCES = {
     "autoResume": True,
     "restoreQueue": True,
@@ -405,7 +406,9 @@ class Player:
         self.catalog_entity_offset = 0
         self.catalog_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.lyrics_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self.lyrics_cache_dir: Path | None = LYRICS_CACHE_DIR
         self.lyrics_loading: set[str] = set()
+        self._url_cache: dict[str, tuple[str, float]] = {}
         self.lyrics_generation = 0
         self.track_info_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.track_info_loading: set[str] = set()
@@ -3278,21 +3281,90 @@ class Player:
                 "lines": [dict(line) for line in value.get("lines", [])],
                 "error": str(value.get("error", ""))}
 
+    def _read_disk_lyrics(self, track_id: str) -> dict[str, Any] | None:
+        if not track_id or not getattr(self, "lyrics_cache_dir", None): return None
+        path = self.lyrics_cache_dir / f"{track_id}.json"
+        if path.exists():
+            try:
+                data = json.loads(path.read_text("utf-8"))
+                if isinstance(data, dict): return data
+            except Exception: pass
+        return None
+
+    def _write_disk_lyrics(self, track_id: str, entry: dict[str, Any]) -> None:
+        if not track_id or not entry or not getattr(self, "lyrics_cache_dir", None): return
+        try:
+            self.lyrics_cache_dir.mkdir(parents=True, exist_ok=True)
+            path = self.lyrics_cache_dir / f"{track_id}.json"
+            atomic_json(path, entry)
+        except Exception: pass
+
     def _store_lyrics_locked(self, track_id: str, entry: dict[str, Any]) -> None:
         self.lyrics_cache[track_id] = entry
         self.lyrics_cache.move_to_end(track_id)
         while len(self.lyrics_cache) > LYRICS_CACHE_MAX_ENTRIES:
             self.lyrics_cache.popitem(last=False)
+        self._write_disk_lyrics(track_id, entry)
+
+    def _prefetch_lyrics(self, track_id: str) -> None:
+        if not track_id: return
+        with self.lock:
+            client = self.client
+            if not client: return
+            if track_id in self.lyrics_cache or track_id in self.lyrics_loading:
+                return
+            disk = self._read_disk_lyrics(track_id)
+            if disk is not None:
+                self.lyrics_cache[track_id] = disk
+                self.lyrics_cache.move_to_end(track_id)
+                while len(self.lyrics_cache) > LYRICS_CACHE_MAX_ENTRIES:
+                    self.lyrics_cache.popitem(last=False)
+                return
+            self.lyrics_loading.add(track_id)
+            generation = self.lyrics_generation
+
+        def load() -> None:
+            try:
+                entry = self._lyrics_entry(client, track_id)
+            except Exception as exc:
+                entry = {"available": False, "synced": False, "format": "",
+                         "writers": [], "lines": [],
+                         "error": f"Не удалось загрузить текст: {self._friendly_error(exc)}"}
+            with self.lock:
+                if generation != self.lyrics_generation or self.client is not client: return
+                self.lyrics_loading.discard(track_id)
+                self._store_lyrics_locked(track_id, entry)
+
+        threading.Thread(target=load, daemon=True).start()
+
+    def _prefetch_queue_lyrics(self) -> None:
+        with self.lock:
+            curr = self._current_track_locked()
+            curr_id = self._track_id(curr) if curr else ""
+            next_idx = self.index + 1
+            next_track = self.queue[next_idx] if self.queue and 0 <= next_idx < len(self.queue) else None
+            next_id = self._track_id(next_track) if next_track else ""
+        if curr_id:
+            self._prefetch_lyrics(curr_id)
+        if next_id:
+            self._prefetch_lyrics(next_id)
 
     def lyrics(self, *, force: bool = False) -> dict[str, Any]:
-        """Return current lyrics or start an on-demand, in-memory-only load."""
+        """Return current lyrics or start an on-demand load with disk caching."""
         with self.lock:
             track = self._current_track_locked()
             track_id = self._track_id(track) if track is not None else ""
             client = self.client
             if not track_id or not client: return self._lyrics_response(track_id)
-            if force: self.lyrics_cache.pop(track_id, None)
+            if force:
+                self.lyrics_cache.pop(track_id, None)
+                try: (LYRICS_CACHE_DIR / f"{track_id}.json").unlink(missing_ok=True)
+                except Exception: pass
             cached = self.lyrics_cache.get(track_id)
+            if cached is None:
+                cached = self._read_disk_lyrics(track_id)
+                if cached is not None:
+                    self.lyrics_cache[track_id] = cached
             if cached is not None:
                 self.lyrics_cache.move_to_end(track_id)
                 return self._lyrics_response(track_id, cached)
@@ -3522,6 +3594,12 @@ class Player:
                 "duration": self._int(getattr(track, "duration_ms", 0)) // 1000}
 
     def _url(self, track: Any, *, variant: int = 0, update_loading: bool = True) -> str:
+        tid = self._track_id(track) if hasattr(self, "_track_id") else str(getattr(track, "id", ""))
+        cache = getattr(self, "_url_cache", None)
+        if cache is not None and tid and variant == 0:
+            cached = cache.get(tid)
+            if cached and time.monotonic() - cached[1] < 3600:
+                return cached[0]
         infos = self._api_call(
             lambda: track.get_download_info(get_direct_links=True),
             update_loading=update_loading) or []
@@ -3531,14 +3609,50 @@ class Player:
         else:
             infos.sort(key=lambda x: (x.codec in ("mp3", "aac"), x.bitrate_in_kbps or 0), reverse=True)
         info = infos[variant % len(infos)]
-        return info.direct_link or self._api_call(
+        direct = info.direct_link or self._api_call(
             info.get_direct_link, update_loading=update_loading)
+        if cache is not None and tid and direct and variant == 0:
+            cache[tid] = (direct, time.monotonic())
+            while len(cache) > 40:
+                cache.pop(next(iter(cache)), None)
+        return direct
+
+    def _prefetch_adjacent_tracks(self) -> None:
+        with self.lock:
+            next_idx = self.index + 1
+            prev_idx = self.index - 1
+            next_track = self.queue[next_idx] if self.queue and 0 <= next_idx < len(self.queue) else None
+            prev_track = self.queue[prev_idx] if self.queue and 0 <= prev_idx < len(self.queue) else None
+
+        def worker():
+            for t in (next_track, prev_track):
+                if not t: continue
+                tid = self._track_id(t)
+                if not tid: continue
+                try:
+                    self._prefetch_lyrics(tid)
+                except Exception:
+                    pass
+                try:
+                    cache = getattr(self, "_url_cache", None)
+                    if cache is not None and tid not in cache:
+                        url = self._url(t, update_loading=False)
+                        if url:
+                            try:
+                                # Pre-warm connection / fetch audio header & first chunks
+                                requests.get(url, headers={"Range": "bytes=0-131072"}, timeout=5).close()
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+        threading.Thread(target=worker, daemon=True).start()
 
     def _ensure_mpv(self) -> None:
         if self.mpv and self.mpv.poll() is None and MPV_SOCKET.exists(): return
         MPV_SOCKET.unlink(missing_ok=True)
         self.mpv = subprocess.Popen(["/usr/bin/mpv", "--idle=yes", "--no-video", "--audio-display=no",
             "--no-terminal", "--load-scripts=no", "--audio-client-name=Yandex Music",
+            "--demuxer-max-bytes=32M", "--demuxer-readahead-secs=30",
             f"--input-ipc-server={MPV_SOCKET}", "--force-window=no", f"--volume={self.volume}"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(60):
@@ -3624,7 +3738,9 @@ class Player:
                         self.last_playback_progress_at = time.monotonic()
                     if not start_paused: self._begin_playback_reporting(track)
                     self._publish_mpris(); self._notify_track(meta)
-                    self._save_state(True); self._maybe_extend_collection(); return
+                    self._save_state(True); self._maybe_extend_collection()
+                    self._prefetch_adjacent_tracks()
+                    return
                 except Exception as exc:
                     last_error = exc
                     with self.lock:
@@ -3895,6 +4011,16 @@ class Player:
             data["queueIndex"] = (self.index + 1
                                   if self.detached_track is None and self.index >= 0 else 0)
             data["queueCount"] = len(self.queue)
+            lyrics_cache = getattr(self, "lyrics_cache", None)
+            curr_track = self._current_track_locked() if hasattr(self, "_current_track_locked") else None
+            curr_id = self._track_id(curr_track) if curr_track else ""
+            cached_lyr = lyrics_cache.get(curr_id) if (lyrics_cache and curr_id) else None
+            if not cached_lyr and curr_id:
+                cached_lyr = self._read_disk_lyrics(curr_id)
+                if cached_lyr and lyrics_cache is not None:
+                    lyrics_cache[curr_id] = cached_lyr
+            loading = (curr_id in self.lyrics_loading) if hasattr(self, "lyrics_loading") else False
+            data["lyrics"] = self._lyrics_response(curr_id, cached_lyr, loading=loading)
             if include_queue:
                 data["catalog"] = copy.deepcopy(self.catalog)
                 data["libraryHub"] = copy.deepcopy(self.library_hub)

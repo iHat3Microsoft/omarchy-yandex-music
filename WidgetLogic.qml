@@ -13,12 +13,15 @@ Item {
   property var data: ({ title: "", artist: "", playing: false })
   property string statusError: ""
   property string bootstrapError: ""
-  property var lyricsData: ({ trackId: "", loading: false, available: false, synced: false, lines: [] })
+  property var lyricsData: (data && data.lyrics && String(data.lyrics.trackId || "") === currentTrackId)
+    ? data.lyrics
+    : ({ trackId: currentTrackId, loading: currentTrackId !== "", available: false, synced: false, lines: [] })
   readonly property string currentTrackId: String(data.trackId || "")
   readonly property bool hasTrack: String(data.title || "") !== ""
   readonly property bool loading: bootstrapProcess.running || data.loading === true || data.connecting === true || data.restoring === true
   readonly property string error: bootstrapError || statusError || String(data.error || "")
   readonly property bool playing: data.playing === true
+  property var actionQueue: []
   readonly property string shortTitle: {
     var title = String(data.title || "")
     return title.length > 28 ? title.slice(0, 28) + "…" : title
@@ -60,12 +63,18 @@ Item {
     lyricsProcess.running = true
   }
   function action(name, argument) {
-    if (!actionProcess.running) {
-      var args = [cli, name]
-      if (argument !== undefined && argument !== null) args.push(String(argument))
-      actionProcess.command = args
-      actionProcess.running = true
+    var args = [cli, name]
+    if (argument !== undefined && argument !== null) args.push(String(argument))
+    if (actionProcess.running) {
+      if (name === "seek" && actionQueue.length > 0 && actionQueue[actionQueue.length - 1][1] === "seek") {
+        actionQueue[actionQueue.length - 1] = args
+        return
+      }
+      actionQueue.push(args)
+      return
     }
+    actionProcess.command = args
+    actionProcess.running = true
   }
 
   onCurrentTrackIdChanged: {
@@ -125,7 +134,15 @@ Item {
   Process {
     id: actionProcess
     command: []
-    onExited: settle.restart()
+    onExited: {
+      if (actionQueue.length > 0) {
+        var nextArgs = actionQueue.shift()
+        actionProcess.command = nextArgs
+        actionProcess.running = true
+        return
+      }
+      settle.restart()
+    }
   }
   Process {
     id: lyricsProcess

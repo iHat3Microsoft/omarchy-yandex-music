@@ -309,7 +309,11 @@ Item {
       clip: true
 
       property string currentDisplayedText: ""
-      property string pendingText: root.targetLyricText
+      property string pendingText: {
+        if (!root.syncedLyricsAvailable) return ""
+        if (root.targetLyricText !== "") return root.targetLyricText
+        return "♪"
+      }
 
       onPendingTextChanged: {
         if (pendingText === currentDisplayedText) return
