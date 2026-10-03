@@ -24,13 +24,6 @@ BarWidget {
   function open() { if (logic) logic.open() }
   function close() { if (logic) logic.close() }
   function closeForPopoutSwitch() { if (logic) logic.closeForPopoutSwitch() }
-  function triggerPress(button) {
-    if (logic) {
-      if (button === Qt.LeftButton) logic.action("pause")
-      else if (button === Qt.RightButton) logic.action("next")
-      else if (button === Qt.MiddleButton) logic.action("previous")
-    }
-  }
 
   implicitWidth: playerLoader.item ? playerLoader.item.implicitWidth : 0
   implicitHeight: playerLoader.item ? playerLoader.item.implicitHeight : barSize

@@ -218,6 +218,7 @@ Item {
 
       MouseArea {
         anchors.fill: parent
+        z: 5
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: if (root.logic) root.logic.toggle()
@@ -263,10 +264,11 @@ Item {
       MouseArea {
         id: likeMouseArea
         anchors.fill: parent
+        z: 5
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: if (root.logic) root.logic.action("like")
-        onEntered: if (root.bar) root.bar.showTooltip(parent, root.logic && root.logic.data && root.logic.data.liked ? "Удалить из понравившихся" : "Мне нравится")
+        onEntered: if (root.bar) root.bar.showTooltip(parent, root.logic && root.logic.liked ? "Удалить из понравившихся" : "Мне нравится")
         onExited: if (root.bar) root.bar.hideTooltip(parent)
       }
     }
@@ -556,16 +558,20 @@ Item {
     onTriggered: root.loaderAngle = (root.loaderAngle + 7.2) % 360
   }
 
-  // Playback Progress Bar (interpolated position)
+  // Playback Progress Bar (anchored from controls start to end of track title)
   Rectangle {
     visible: root.hasTrack && root.showProgress
-    anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-    height: Style.space(2); color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, .15)
+    x: controls.x
+    anchors.bottom: parent.bottom
+    width: labelSlot.visible ? (labelSlot.x + labelSlot.width) : (coverSlot.x + coverSlot.width)
+    height: Style.space(2)
+    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, .15)
     Rectangle {
       width: parent.width * (root.logic
         ? Math.min(1, root.displayPosition / Math.max(1, Number(root.logic.data.duration || 1)))
         : 0)
-      height: parent.height; color: Color.accent
+      height: parent.height
+      color: Color.accent
     }
   }
 }
