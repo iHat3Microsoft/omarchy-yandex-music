@@ -22,15 +22,15 @@ Item {
   readonly property string longTitleMode: String(preferences.longTitleMode || "truncate")
   readonly property real informationWidth: {
     var mode = String(preferences.barWidth || "normal")
-    if (mode === "compact") return Style.space(130)
-    if (mode === "wide") return Style.space(240)
-    return Style.space(180)
+    if (mode === "compact") return Style.space(140)
+    if (mode === "wide") return Style.space(260)
+    return Style.space(200)
   }
   readonly property real lyricsWidth: {
     var mode = String(preferences.barWidth || "normal")
-    if (mode === "compact") return Style.space(180)
-    if (mode === "wide") return Style.space(340)
-    return Style.space(250)
+    if (mode === "compact") return Style.space(280)
+    if (mode === "wide") return Style.space(540)
+    return Style.space(420)
   }
   readonly property color foreground: bar ? bar.barForeground : Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
@@ -328,7 +328,7 @@ Item {
       Text {
         textFormat: Text.PlainText
         id: lyricLabel
-        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.left: parent.left
         y: (parent.height - implicitHeight) / 2
         width: Math.min(implicitWidth, parent.width)
         text: lyricsSlot.currentDisplayedText !== "" ? lyricsSlot.currentDisplayedText : "♪"
