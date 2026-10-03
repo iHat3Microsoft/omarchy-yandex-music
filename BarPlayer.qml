@@ -447,17 +447,16 @@ Item {
       pressX = mouse.x
       pressY = mouse.y
       isDragging = false
-      mouse.accepted = false
+      mouse.accepted = true
     }
 
     onPositionChanged: function(mouse) {
       if (mouse.buttons & Qt.LeftButton) {
         var dist = Math.abs(mouse.x - pressX) + Math.abs(mouse.y - pressY)
-        if (dist >= Style.space(4)) {
+        if (dist >= Style.space(6)) {
           isDragging = true
         }
       }
-      mouse.accepted = false
     }
 
     onClicked: function(mouse) {
