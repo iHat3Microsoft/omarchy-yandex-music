@@ -35,6 +35,7 @@ Item {
   readonly property color foreground: bar ? bar.barForeground : Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property Item coverItem: cover
+  readonly property bool isBarVertical: bar ? Boolean(bar.vertical) : false
   readonly property string label: {
     if (hasError) return "Ошибка Яндекс Музыки — нажмите, чтобы открыть"
     if (loading && !hasTrack) return "Яндекс Музыка загружается…"
@@ -68,24 +69,25 @@ Item {
   readonly property var lyricsLines: logic && logic.lyricsData && logic.lyricsData.lines ? logic.lyricsData.lines : []
   readonly property bool syncedLyricsAvailable: logic && logic.lyricsData && logic.lyricsData.synced === true && lyricsLines.length > 0
 
-  function currentLyricsIndex() {
+  readonly property int activeLyricIndex: {
+    var pos = root.displayPosition
     if (!syncedLyricsAvailable) return -1
     var current = -1
-    var pos = root.displayPosition
-    for (var i = 0; i < lyricsLines.length; i++) {
-      var t = Number(lyricsLines[i].time || 0)
+    var lines = root.lyricsLines
+    for (var i = 0; i < lines.length; i++) {
+      var t = Number(lines[i].time || 0)
       if (t <= pos + 0.05) current = i
       else break
     }
     return current
   }
 
-  readonly property int activeLyricIndex: currentLyricsIndex()
   readonly property string targetLyricText: {
     if (!syncedLyricsAvailable) return ""
     var idx = activeLyricIndex
-    if (idx >= 0 && idx < lyricsLines.length) {
-      return String(lyricsLines[idx].text || "").trim()
+    var lines = root.lyricsLines
+    if (idx >= 0 && idx < lines.length) {
+      return String(lines[idx].text || "").trim()
     }
     return ""
   }
@@ -318,7 +320,7 @@ Item {
     // Separator between Title and Lyrics
     Item {
       id: separatorItem
-      visible: root.hasTrack && root.syncedLyricsAvailable
+      visible: root.hasTrack && root.syncedLyricsAvailable && !root.isBarVertical
       width: Style.space(10)
       height: root.implicitHeight
 
@@ -336,86 +338,77 @@ Item {
     // Synced Lyrics Slot with Smooth Bezier-Curve Transition Animations
     Item {
       id: lyricsSlot
-      visible: root.hasTrack && root.syncedLyricsAvailable
+      visible: root.hasTrack && root.syncedLyricsAvailable && !root.isBarVertical
       width: root.lyricsWidth
       height: root.implicitHeight
       clip: true
 
-      property string currentDisplayedText: ""
-      property string pendingText: {
+      property string currentText: {
         if (!root.syncedLyricsAvailable) return ""
         if (root.targetLyricText !== "") return root.targetLyricText
         return "♪"
       }
 
-      onPendingTextChanged: {
-        if (pendingText === currentDisplayedText) return
-        if (lyricTransition.running) {
-          lyricTransition.stop()
-        }
-        if (currentDisplayedText === "") {
-          currentDisplayedText = pendingText
-          lyricLabel.opacity = 1
-          lyricLabel.y = (lyricsSlot.height - lyricLabel.implicitHeight) / 2
-        } else {
-          lyricTransition.restart()
-        }
+      onCurrentTextChanged: {
+        lyricAnim.restart()
       }
 
       Text {
         textFormat: Text.PlainText
         id: lyricLabel
         anchors.left: parent.left
-        y: (parent.height - implicitHeight) / 2
+        anchors.verticalCenter: parent.verticalCenter
         width: Math.min(implicitWidth, parent.width)
-        text: lyricsSlot.currentDisplayedText !== "" ? lyricsSlot.currentDisplayedText : "♪"
-        color: lyricsSlot.currentDisplayedText !== "" ? Color.accent : root.foreground
-        opacity: lyricsSlot.currentDisplayedText !== "" ? 1.0 : 0.4
+        text: lyricsSlot.currentText
+        color: lyricsSlot.currentText !== "♪" ? Color.accent : root.foreground
+        opacity: lyricsSlot.currentText !== "♪" ? 1.0 : 0.4
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
         font.weight: Font.Medium
         elide: Text.ElideRight
+
+        transform: Translate {
+          id: lyricTranslate
+          y: 0
+        }
       }
 
       SequentialAnimation {
-        id: lyricTransition
-        // Smooth slide up & fade out old line
+        id: lyricAnim
         ParallelAnimation {
           NumberAnimation {
             target: lyricLabel
             property: "opacity"
-            to: 0
-            duration: 120
+            to: 0.1
+            duration: 80
             easing.type: Easing.InQuad
           }
           NumberAnimation {
-            target: lyricLabel
+            target: lyricTranslate
             property: "y"
-            to: ((lyricsSlot.height - lyricLabel.implicitHeight) / 2) - Style.space(6)
-            duration: 120
+            to: -Style.space(5)
+            duration: 80
             easing.type: Easing.InQuad
           }
         }
         ScriptAction {
           script: {
-            lyricsSlot.currentDisplayedText = lyricsSlot.pendingText
-            lyricLabel.y = ((lyricsSlot.height - lyricLabel.implicitHeight) / 2) + Style.space(6)
+            lyricTranslate.y = Style.space(5)
           }
         }
-        // Smooth slide into place & fade in new line using Bezier (OutCubic) curve
         ParallelAnimation {
           NumberAnimation {
             target: lyricLabel
             property: "opacity"
-            to: lyricsSlot.currentDisplayedText !== "" ? 1.0 : 0.4
-            duration: 220
+            to: lyricsSlot.currentText !== "♪" ? 1.0 : 0.4
+            duration: 180
             easing.type: Easing.OutCubic
           }
           NumberAnimation {
-            target: lyricLabel
+            target: lyricTranslate
             property: "y"
-            to: (lyricsSlot.height - lyricLabel.implicitHeight) / 2
-            duration: 220
+            to: 0
+            duration: 180
             easing.type: Easing.OutCubic
           }
         }
@@ -441,12 +434,34 @@ Item {
       return w
     }
     height: root.height
-    z: 10
     hoverEnabled: true
     cursorShape: Qt.PointingHandCursor
     acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+    propagateComposedEvents: true
+
+    property real pressX: 0
+    property real pressY: 0
+    property bool isDragging: false
+
+    onPressed: function(mouse) {
+      pressX = mouse.x
+      pressY = mouse.y
+      isDragging = false
+      mouse.accepted = false
+    }
+
+    onPositionChanged: function(mouse) {
+      if (mouse.buttons & Qt.LeftButton) {
+        var dist = Math.abs(mouse.x - pressX) + Math.abs(mouse.y - pressY)
+        if (dist >= Style.space(4)) {
+          isDragging = true
+        }
+      }
+      mouse.accepted = false
+    }
 
     onClicked: function(mouse) {
+      if (isDragging) return
       if (!root.logic) return
       if (mouse.button === Qt.LeftButton) {
         root.logic.action("pause")

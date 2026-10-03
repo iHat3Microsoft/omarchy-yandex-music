@@ -47,19 +47,33 @@ BarWidget {
     active: true
     source: Qt.resolvedUrl("BarPlayer.qml")
     onLoaded: {
-      item.bar = root.bar
-      item.logic = root.logic
-      item.hostWidget = root
       root.injectLogic()
+      Qt.callLater(root.injectLogic)
     }
+  }
+
+  Binding {
+    target: playerLoader.item
+    property: "logic"
+    value: root.logic
+    when: playerLoader.item !== null
+  }
+  Binding {
+    target: playerLoader.item
+    property: "bar"
+    value: root.bar
+    when: playerLoader.item !== null
+  }
+  Binding {
+    target: playerLoader.item
+    property: "hostWidget"
+    value: root
+    when: playerLoader.item !== null
   }
 
   Connections {
     target: root
-    function onBarChanged() { if (playerLoader.item) playerLoader.item.bar = root.bar }
-    function onLogicChanged() {
-      if (playerLoader.item) playerLoader.item.logic = root.logic
-      root.injectLogic()
-    }
+    function onBarChanged() { root.injectLogic() }
+    function onLogicChanged() { root.injectLogic() }
   }
 }
