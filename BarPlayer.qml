@@ -101,113 +101,118 @@ Item {
     spacing: Style.space(6)
 
     // Album art / Cover image
-    BorderSurface {
-      id: cover
+    Item {
+      id: coverSlot
       visible: root.showCover
-      width: Style.space(20); height: Style.space(20)
-      anchors.verticalCenter: parent.verticalCenter
-      radius: root.coverShape === "circle" ? width / 2
-        : (root.coverShape === "square" ? 0 : Style.space(2))
-      color: Style.normalFillFor(root.foreground, Color.accent)
-      borderSpec: Border.none()
+      width: Style.space(20); height: root.implicitHeight
 
-      Rectangle {
-        id: coverMask
-        anchors.fill: parent
-        visible: false
-        layer.enabled: true
-        radius: cover.radius
-        color: "white"
-      }
-      Image {
-        anchors.fill: parent; source: root.logic && root.logic.data.artUrl ? root.logic.data.artUrl : ""
-        fillMode: Image.PreserveAspectCrop; asynchronous: true; visible: source !== ""
-        layer.enabled: true; layer.smooth: true
-        layer.effect: MultiEffect {
-          maskEnabled: true; maskSource: coverMask
-          maskThresholdMin: .3; maskSpreadAtMin: .3
-        }
-      }
-      Text {
-        textFormat: Text.PlainText
-        anchors.centerIn: parent; visible: !root.logic || !root.logic.data.artUrl
-        text: "󰝚"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption
-      }
-      Rectangle {
-        anchors.fill: parent
-        visible: root.hasError && !root.loading
-        radius: cover.radius
-        color: Qt.rgba(0, 0, 0, .55)
-      }
-      Rectangle {
-        anchors.fill: parent
-        visible: root.loading
-        radius: cover.radius
-        color: Qt.rgba(0, 0, 0, .58)
-      }
-      Rectangle {
+      BorderSurface {
+        id: cover
+        width: Style.space(20); height: Style.space(20)
         anchors.centerIn: parent
-        visible: root.loading
-        width: Style.space(14); height: width; radius: width / 2
-        color: "transparent"
-        border.width: Style.spacing.hairline
-        border.color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, .25)
-      }
-      Canvas {
-        anchors.centerIn: parent
-        visible: root.loading
-        width: Style.space(14); height: width
-        antialiasing: true
-        rotation: root.loaderAngle
-        onPaint: {
-          var context = getContext("2d")
-          context.clearRect(0, 0, width, height)
-          context.beginPath()
-          context.arc(width / 2, height / 2, width / 2 - Style.space(1.3),
-            -Math.PI / 2, Math.PI * .85, false)
-          context.lineWidth = Style.space(1.7)
-          context.lineCap = "round"
-          context.strokeStyle = Color.accent
-          context.stroke()
-        }
-      }
-      Text {
-        textFormat: Text.PlainText
-        anchors.centerIn: parent
-        visible: root.hasError && !root.loading
-        text: "󰀪"; color: Color.urgent
-        font.family: root.fontFamily; font.pixelSize: Style.font.caption
-      }
+        radius: root.coverShape === "circle" ? width / 2
+          : (root.coverShape === "square" ? 0 : Style.space(2))
+        color: Style.normalFillFor(root.foreground, Color.accent)
+        borderSpec: Border.none()
 
-      // Smooth darkening overlay when playback is paused
-      Rectangle {
-        id: pauseDimmer
-        anchors.fill: parent
-        radius: cover.radius
-        color: Qt.rgba(0, 0, 0, .45)
-        opacity: (root.hasTrack && !root.playing && !root.loading && !root.hasError) ? 1.0 : 0.0
-        visible: opacity > 0
-        Behavior on opacity {
-          NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+        Rectangle {
+          id: coverMask
+          anchors.fill: parent
+          visible: false
+          layer.enabled: true
+          radius: cover.radius
+          color: "white"
         }
-      }
+        Image {
+          anchors.fill: parent; source: root.logic && root.logic.data.artUrl ? root.logic.data.artUrl : ""
+          fillMode: Image.PreserveAspectCrop; asynchronous: true; visible: source !== ""
+          layer.enabled: true; layer.smooth: true
+          layer.effect: MultiEffect {
+            maskEnabled: true; maskSource: coverMask
+            maskThresholdMin: .3; maskSpreadAtMin: .3
+          }
+        }
+        Text {
+          textFormat: Text.PlainText
+          anchors.centerIn: parent; visible: !root.logic || !root.logic.data.artUrl
+          text: "󰝚"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption
+        }
+        Rectangle {
+          anchors.fill: parent
+          visible: root.hasError && !root.loading
+          radius: cover.radius
+          color: Qt.rgba(0, 0, 0, .55)
+        }
+        Rectangle {
+          anchors.fill: parent
+          visible: root.loading
+          radius: cover.radius
+          color: Qt.rgba(0, 0, 0, .58)
+        }
+        Rectangle {
+          anchors.centerIn: parent
+          visible: root.loading
+          width: Style.space(14); height: width; radius: width / 2
+          color: "transparent"
+          border.width: Style.spacing.hairline
+          border.color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, .25)
+        }
+        Canvas {
+          anchors.centerIn: parent
+          visible: root.loading
+          width: Style.space(14); height: width
+          antialiasing: true
+          rotation: root.loaderAngle
+          onPaint: {
+            var context = getContext("2d")
+            context.clearRect(0, 0, width, height)
+            context.beginPath()
+            context.arc(width / 2, height / 2, width / 2 - Style.space(1.3),
+              -Math.PI / 2, Math.PI * .85, false)
+            context.lineWidth = Style.space(1.7)
+            context.lineCap = "round"
+            context.strokeStyle = Color.accent
+            context.stroke()
+          }
+        }
+        Text {
+          textFormat: Text.PlainText
+          anchors.centerIn: parent
+          visible: root.hasError && !root.loading
+          text: "󰀪"; color: Color.urgent
+          font.family: root.fontFamily; font.pixelSize: Style.font.caption
+        }
 
-      // Smooth pause badge overlay
-      Text {
-        textFormat: Text.PlainText
-        anchors.centerIn: parent
-        text: "󰏤"
-        color: "white"
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        opacity: (root.hasTrack && !root.playing && !root.loading && !root.hasError) ? 1.0 : 0.0
-        scale: (root.hasTrack && !root.playing && !root.loading && !root.hasError) ? 1.0 : 0.75
-        visible: opacity > 0
-        Behavior on opacity {
-          NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+        // Smooth darkening overlay when playback is paused
+        Rectangle {
+          id: pauseDimmer
+          anchors.fill: parent
+          radius: cover.radius
+          color: Qt.rgba(0, 0, 0, .45)
+          opacity: (root.hasTrack && !root.playing && !root.loading && !root.hasError) ? 1.0 : 0.0
+          visible: opacity > 0
+          Behavior on opacity {
+            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+          }
         }
-        Behavior on scale {
-          NumberAnimation { duration: 180; easing.type: Easing.OutBack }
+
+        // Smooth pause badge overlay
+        Text {
+          textFormat: Text.PlainText
+          anchors.centerIn: parent
+          text: "󰏤"
+          color: "white"
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          opacity: (root.hasTrack && !root.playing && !root.loading && !root.hasError) ? 1.0 : 0.0
+          scale: (root.hasTrack && !root.playing && !root.loading && !root.hasError) ? 1.0 : 0.75
+          visible: opacity > 0
+          Behavior on opacity {
+            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+          }
+          Behavior on scale {
+            NumberAnimation { duration: 180; easing.type: Easing.OutBack }
+          }
         }
       }
 
@@ -526,6 +531,21 @@ Item {
       root.bar.showTooltip(root, tooltip)
     }
     onExited: if (root.bar) root.bar.hideTooltip(root)
+  }
+
+  // Global background cursor & playback clicks across entire widget bounds
+  MouseArea {
+    anchors.fill: parent
+    z: -1
+    hoverEnabled: true
+    cursorShape: root.hasTrack ? Qt.PointingHandCursor : Qt.ArrowCursor
+    acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+    onClicked: function(mouse) {
+      if (!root.logic || !root.hasTrack) return
+      if (mouse.button === Qt.LeftButton) root.logic.action("pause")
+      else if (mouse.button === Qt.RightButton) root.logic.action("next")
+      else if (mouse.button === Qt.MiddleButton) root.logic.action("previous")
+    }
   }
 
   // Cover loader animation timer
