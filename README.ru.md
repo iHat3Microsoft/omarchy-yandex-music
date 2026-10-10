@@ -21,6 +21,8 @@
 
 ## Скриншоты
 
+<img width="895" height="83" alt="image" src="https://github.com/user-attachments/assets/b81fa29a-3b4c-4d61-af07-a433b1ac12b8" />
+
 <p align="center">
   <img src="preview.webp" alt="Экран «Сейчас играет» Яндекс Музыки в Omarchy" width="900">
 </p>
@@ -140,7 +142,7 @@ Backend регистрирует безопасный MPRIS-плеер с наз
 Установите и включите плагин стандартной командой Omarchy:
 
 ```bash
-omarchy plugin add https://github.com/vornashev/omarchy-yandex-music.git --enable
+omarchy plugin add https://github.com/iHat3Microsoft/omarchy-yandex-music.git --enable
 ```
 
 Вручную выполнять `git clone`, `cd` или использовать `sudo` не нужно. При первой загрузке плагин автоматически установит Python-окружение, CLI и пользовательский systemd-сервис. Python-пакеты устанавливаются только из полного набора wheels, зафиксированного по версиям и SHA-256 в `requirements.txt`; installer не обновляет `pip` и не исполняет VCS-зависимость из сети. Первичная настройка может занять некоторое время. Будут созданы:
