@@ -21,6 +21,8 @@ A native Yandex Music mini-player for the [Omarchy](https://omarchy.org/) shell.
 
 ## Screenshots
 
+<img width="895" height="83" alt="image" src="https://github.com/user-attachments/assets/ae354db3-6fa9-4bdd-a535-1a6270899653" />
+
 <p align="center">
   <img src="preview.webp" alt="Yandex Music Now Playing popup in Omarchy" width="900">
 </p>
@@ -140,7 +142,7 @@ The backend exposes a sanitized MPRIS player named **Yandex Music**. Omarchy and
 Install and enable the plugin with the standard Omarchy command:
 
 ```bash
-omarchy plugin add https://github.com/vornashev/omarchy-yandex-music.git --enable
+omarchy plugin add https://github.com/iHat3Microsoft/omarchy-yandex-music.git --enable
 ```
 
 No manual `git clone`, `cd`, or `sudo` is required. On its first load, the plugin automatically installs its Python environment, CLI, and systemd user service. Python packages are installed only from the complete version- and SHA-256-locked wheel set in `requirements.txt`; the installer neither upgrades `pip` nor executes a live VCS dependency. This initial setup may take a moment. It creates:
