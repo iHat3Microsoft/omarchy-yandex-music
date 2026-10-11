@@ -29,7 +29,7 @@ done
 
 VERSION="$(jq -er '.version' "$ROOT/manifest.json")"
 DEPENDENCY_DIGEST="$(sha256sum "$ROOT/requirements.txt" \
-  "$ROOT/vendor/yandex_music-3.1.0b2-py3-none-any.whl" | cut -d' ' -f1 | sha256sum | cut -d' ' -f1)"
+  "$ROOT/vendor/yandex_music-3.2.2-py3-none-any.whl" | cut -d' ' -f1 | sha256sum | cut -d' ' -f1)"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 mkdir -p "$RUNTIME_DIR"
 exec 9>"$RUNTIME_DIR/omarchy-yandex-music-install.lock"
@@ -50,8 +50,9 @@ if [[ "$(realpath "$ROOT")" != "$(realpath "$PLUGIN_DIR")" ]]; then
     "$ROOT/CollectionController.qml" \
     "$ROOT/requirements.in" "$ROOT/requirements.txt" "$PLUGIN_DIR/"
   install -m 644 "$ROOT/vendor/README.md" \
-    "$ROOT/vendor/yandex_music-3.1.0b2.origin.json" \
-    "$ROOT/vendor/yandex_music-3.1.0b2-py3-none-any.whl" "$PLUGIN_DIR/vendor/"
+    "$ROOT/vendor/yandex_music-3.2.2.origin.json" \
+    "$ROOT/vendor/yandex_music-3.2.2-py3-none-any.whl" "$PLUGIN_DIR/vendor/"
+  rm -f "$PLUGIN_DIR/vendor/yandex_music-3.1.0b2"*
   install -m 755 "$ROOT/install.sh" "$ROOT/bootstrap.sh" "$ROOT/uninstall.sh" "$PLUGIN_DIR/"
   install -m 755 "$ROOT/backend/backend.py" "$PLUGIN_DIR/backend/backend.py"
   install -m 755 "$ROOT/bin/omarchy-yandex-music" "$PLUGIN_DIR/bin/omarchy-yandex-music"

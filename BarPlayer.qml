@@ -26,12 +26,13 @@ Item {
     if (mode === "wide") return Style.space(260)
     return Style.space(200)
   }
-  readonly property real lyricsWidth: {
+  readonly property real lyricsMaxWidth: {
     var mode = String(preferences.barWidth || "normal")
-    if (mode === "compact") return Style.space(280)
-    if (mode === "wide") return Style.space(540)
-    return Style.space(420)
+    if (mode === "compact") return Style.space(160)
+    if (mode === "wide") return Style.space(320)
+    return Style.space(220)
   }
+  readonly property real lyricsWidth: Math.min(lyricsMaxWidth, Math.max(Style.space(40), lyricLabel.implicitWidth + Style.space(4)))
   readonly property color foreground: bar ? bar.barForeground : Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property Item coverItem: cover
@@ -67,23 +68,32 @@ Item {
   }
 
   readonly property var lyricsLines: logic && logic.lyricsData && logic.lyricsData.lines ? logic.lyricsData.lines : []
-  readonly property bool syncedLyricsAvailable: logic && logic.lyricsData && logic.lyricsData.synced === true && lyricsLines.length > 0
+  readonly property bool lyricsAvailable: logic && logic.lyricsData && logic.lyricsData.available === true && lyricsLines.length > 0
+  readonly property bool syncedLyricsAvailable: lyricsAvailable && logic.lyricsData.synced === true
 
   readonly property int activeLyricIndex: {
     var pos = root.displayPosition
-    if (!syncedLyricsAvailable) return -1
-    var current = -1
-    var lines = root.lyricsLines
-    for (var i = 0; i < lines.length; i++) {
-      var t = Number(lines[i].time || 0)
-      if (t <= pos + 0.05) current = i
-      else break
+    if (!lyricsAvailable) return -1
+    if (syncedLyricsAvailable) {
+      var current = -1
+      var lines = root.lyricsLines
+      for (var i = 0; i < lines.length; i++) {
+        var t = Number(lines[i].time || 0)
+        if (t <= pos + 0.05) current = i
+        else break
+      }
+      return current
     }
-    return current
+    var dur = Number(logic && logic.data ? logic.data.duration || 0 : 0)
+    if (dur > 0 && lyricsLines.length > 0) {
+      var ratio = Math.max(0, Math.min(1, pos / dur))
+      return Math.min(lyricsLines.length - 1, Math.floor(ratio * lyricsLines.length))
+    }
+    return 0
   }
 
   readonly property string targetLyricText: {
-    if (!syncedLyricsAvailable) return ""
+    if (!lyricsAvailable) return ""
     var idx = activeLyricIndex
     var lines = root.lyricsLines
     if (idx >= 0 && idx < lines.length) {
@@ -327,7 +337,7 @@ Item {
     // Separator between Title and Lyrics
     Item {
       id: separatorItem
-      visible: root.hasTrack && root.syncedLyricsAvailable && !root.isBarVertical
+      visible: root.hasTrack && root.lyricsAvailable && !root.isBarVertical
       width: Style.space(10)
       height: root.implicitHeight
 
@@ -345,13 +355,13 @@ Item {
     // Synced Lyrics Slot with Smooth Bezier-Curve Transition Animations
     Item {
       id: lyricsSlot
-      visible: root.hasTrack && root.syncedLyricsAvailable && !root.isBarVertical
+      visible: root.hasTrack && root.lyricsAvailable && !root.isBarVertical
       width: root.lyricsWidth
       height: root.implicitHeight
       clip: true
 
       property string currentText: {
-        if (!root.syncedLyricsAvailable) return ""
+        if (!root.lyricsAvailable) return ""
         if (root.targetLyricText !== "") return root.targetLyricText
         return "♪"
       }
@@ -487,14 +497,20 @@ Item {
 
       if (wheel.angleDelta.y > 0) {
         // Scroll Up -> Seek next lyric line
-        if (root.syncedLyricsAvailable && lyrics.length > 0) {
+        if (root.lyricsAvailable && lyrics.length > 0) {
           var nextTime = -1
-          for (var i = 0; i < lyrics.length; i++) {
-            var t = Number(lyrics[i].time || 0)
-            if (t > pos + 0.3) {
-              nextTime = t
-              break
+          if (root.syncedLyricsAvailable) {
+            for (var i = 0; i < lyrics.length; i++) {
+              var t = Number(lyrics[i].time || 0)
+              if (t > pos + 0.3) {
+                nextTime = t
+                break
+              }
             }
+          } else if (dur > 0) {
+            var curIdx = root.activeLyricIndex
+            var nextIdx = Math.min(lyrics.length - 1, curIdx + 1)
+            nextTime = (nextIdx / lyrics.length) * dur
           }
           if (nextTime >= 0) {
             root.logic.action("seek", Math.round(nextTime))
@@ -505,14 +521,20 @@ Item {
         root.logic.action("seek", Math.round(targetForward))
       } else if (wheel.angleDelta.y < 0) {
         // Scroll Down -> Seek previous lyric line
-        if (root.syncedLyricsAvailable && lyrics.length > 0) {
+        if (root.lyricsAvailable && lyrics.length > 0) {
           var prevTime = -1
-          for (var j = lyrics.length - 1; j >= 0; j--) {
-            var pt = Number(lyrics[j].time || 0)
-            if (pt < pos - 0.5) {
-              prevTime = pt
-              break
+          if (root.syncedLyricsAvailable) {
+            for (var j = lyrics.length - 1; j >= 0; j--) {
+              var pt = Number(lyrics[j].time || 0)
+              if (pt < pos - 0.5) {
+                prevTime = pt
+                break
+              }
             }
+          } else if (dur > 0) {
+            var curIdx2 = root.activeLyricIndex
+            var prevIdx = Math.max(0, curIdx2 - 1)
+            prevTime = (prevIdx / lyrics.length) * dur
           }
           if (prevTime >= 0) {
             root.logic.action("seek", Math.round(prevTime))
@@ -527,7 +549,7 @@ Item {
     onEntered: if (root.bar) {
       var tooltip = root.label
       if (root.targetLyricText !== "") {
-        tooltip += "\n[Текст] " + root.targetLyricText
+        tooltip += "\n" + (root.syncedLyricsAvailable ? "[LRC караоке] " : "[Текст] ") + root.targetLyricText
       }
       tooltip += "\nЛКМ: Пауза/Плей | ПКМ: След. | СКМ: Пред. | Колесо: Перемотка строк"
       root.bar.showTooltip(root, tooltip)

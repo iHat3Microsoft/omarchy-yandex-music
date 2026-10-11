@@ -3240,7 +3240,7 @@ Panel {
               }
 
               Toggle {
-                width: parent.width; label: "Показывать кнопки управления"
+                width: parent.width; label: "Показывать кнопки плеера (⏮ ⏯ ⏭)"
                 checked: Boolean(root.preference("showControls", true)); foreground: root.foreground
                 onClicked: root.setPreference("showControls", !checked)
               }

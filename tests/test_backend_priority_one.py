@@ -16,16 +16,32 @@ class FakeClient:
         self.calls.append(("play_audio", args, kwargs))
         return True
 
+    def rotor_session_feedback_radio_started(self, *args, **kwargs):
+        self.calls.append(("radio_started", args, kwargs))
+        return True
+
     def rotor_station_feedback_radio_started(self, *args, **kwargs):
         self.calls.append(("radio_started", args, kwargs))
+        return True
+
+    def rotor_session_feedback_track_started(self, *args, **kwargs):
+        self.calls.append(("started", args, kwargs))
         return True
 
     def rotor_station_feedback_track_started(self, *args, **kwargs):
         self.calls.append(("started", args, kwargs))
         return True
 
+    def rotor_session_feedback_track_finished(self, *args, **kwargs):
+        self.calls.append(("finished", args, kwargs))
+        return True
+
     def rotor_station_feedback_track_finished(self, *args, **kwargs):
         self.calls.append(("finished", args, kwargs))
+        return True
+
+    def rotor_session_feedback_skip(self, *args, **kwargs):
+        self.calls.append(("skip", args, kwargs))
         return True
 
     def rotor_station_feedback_skip(self, *args, **kwargs):
@@ -48,6 +64,14 @@ class FakeClient:
         self.calls.append(("like_remove", track_id))
         return True
 
+    def rotor_session_tracks(self, session_id, **kwargs):
+        self.calls.append(("session_tracks", session_id, kwargs))
+        return self.radio_result
+
+    def rotor_session_new(self, seeds, **kwargs):
+        self.calls.append(("session_new", seeds, kwargs))
+        return self.radio_result
+
     def rotor_station_tracks(self, station, **kwargs):
         self.calls.append(("radio_tracks", station, kwargs))
         return self.radio_result
@@ -68,8 +92,11 @@ class PriorityOneTests(unittest.TestCase):
         player.index = 0
         player.detached_track = None
         player.radio_station = "user:onyourwave" if radio else ""
+        player.radio_session_id = "session" if radio else ""
         player.radio_batch_id = "batch"
         player.radio_track_batches = {self.track.id: "batch"} if radio else {}
+        player.radio_extending = False
+        player.radio_advance_pending = False
         player.playback_report = None
         player.state = {
             "position": 0,
@@ -373,6 +400,7 @@ class PriorityOneTests(unittest.TestCase):
         player.client.radio_result = SimpleNamespace(
             sequence=[SimpleNamespace(track=track) for track in recommended],
             batch_id="radio-batch",
+            radio_session_id="radio-session",
         )
         captured = {}
 
@@ -380,9 +408,10 @@ class PriorityOneTests(unittest.TestCase):
             captured["loadingKind"] = kind
             operation()
 
-        def set_queue(tracks, name, station, batch_id):
+        def set_queue(tracks, name, station, batch_id, *args, **kwargs):
             captured.update(
-                tracks=tracks, name=name, station=station, batchId=batch_id
+                tracks=tracks, name=name, station=station, batchId=batch_id,
+                radioSessionId=kwargs.get("radio_session_id", ""),
             )
 
         player._loading = run_loading
@@ -395,7 +424,8 @@ class PriorityOneTests(unittest.TestCase):
         self.assertEqual(captured["name"], "Радио по треку")
         self.assertEqual(captured["station"], "track:42")
         self.assertEqual(captured["batchId"], "radio-batch")
-        self.assertEqual(player.client.calls, [("radio_tracks", "track:42", {})])
+        self.assertEqual(captured["radioSessionId"], "radio-session")
+        self.assertEqual(player.client.calls, [("session_new", ["track:42"], {})])
 
     def test_dislike_removes_like_and_advances_wave(self):
         player = self.make_player()
