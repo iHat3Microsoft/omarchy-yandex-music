@@ -91,8 +91,17 @@ Item {
       statusError = "Музыкальный сервис вернул некорректный ответ"
     }
   }
+  property var actionQueue: []
+
   function action(command, argument) {
-    if (actionRunning) return false
+    if (actionRunning) {
+      if (command === "seek" && actionQueue.length > 0 && actionQueue[actionQueue.length - 1][0] === "seek") {
+        actionQueue[actionQueue.length - 1] = [command, argument]
+        return true
+      }
+      actionQueue.push([command, argument])
+      return true
+    }
     actionRevision += 1
     lastCommand = command
     lastArgument = argument
@@ -116,6 +125,11 @@ Item {
   function completeAction(exitCode, stdoutText, stderrText) {
     actionRunning = false
     actionFinished(exitCode, String(stdoutText || ""), String(stderrText || ""))
+    if (actionQueue.length > 0) {
+      var next = actionQueue.shift()
+      action(next[0], next[1])
+      return
+    }
     if (pendingArtistId !== "" && !actionRunning) {
       var target = pendingArtistId
       pendingArtistId = ""

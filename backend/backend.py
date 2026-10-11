@@ -44,6 +44,7 @@ CONFIG = Path.home() / ".config/omarchy-yandex-music"
 TOKEN_FILE = CONFIG / "token.json"
 STATE_FILE = CONFIG / "state.json"
 PREFERENCES_FILE = CONFIG / "preferences.json"
+LYRICS_CACHE_DIR = CONFIG / "lyrics"
 DEFAULT_PREFERENCES = {
     "autoResume": True,
     "restoreQueue": True,
@@ -63,6 +64,8 @@ DEFAULT_PREFERENCES = {
     "showCover": True,
     "coverShape": "rounded",
     "showProgress": True,
+    "showBarLyrics": False,
+    "barMouseControls": False,
     "barWidth": "normal",
     "longTitleMode": "scroll",
     "notifications": "off",
@@ -493,6 +496,7 @@ class Player:
         self.catalog_entity_offset = 0
         self.catalog_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.lyrics_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self.lyrics_cache_dir: Path | None = LYRICS_CACHE_DIR
         self.lyrics_loading: set[str] = set()
         self.lyrics_generation = 0
         self.track_info_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -834,7 +838,7 @@ class Player:
             saved = {}
         bool_keys = ("autoResume", "restoreQueue", "restorePosition", "restoreVolume",
                      "showControls", "showVolume", "showTime", "showLike", "showArtist", "showTitle",
-                     "showCover", "showProgress")
+                     "showCover", "showProgress", "showBarLyrics", "barMouseControls")
         for key in bool_keys: preferences[key] = bool(preferences.get(key, DEFAULT_PREFERENCES[key]))
         allowed = {
             "audioQuality": ("best", "economy"),
@@ -857,7 +861,7 @@ class Player:
         if key not in DEFAULT_PREFERENCES: raise ValueError(f"Неизвестная настройка: {key}")
         bool_keys = ("autoResume", "restoreQueue", "restorePosition", "restoreVolume",
                      "showControls", "showVolume", "showTime", "showLike", "showArtist", "showTitle",
-                     "showCover", "showProgress")
+                     "showCover", "showProgress", "showBarLyrics", "barMouseControls")
         allowed = {
             "audioQuality": ("best", "economy"),
             "playbackMode": ("order", "shuffle", "repeatQueue", "repeatTrack"),
@@ -3633,6 +3637,35 @@ class Player:
                     "writers": [], "lines": [], "error": ""}
         raise exc
 
+    def _fetch_lrclib_synced(self, track: Any) -> str:
+        if not track: return ""
+        title = self._text(getattr(track, "title", ""))
+        artists = [self._text(getattr(a, "name", "")) for a in (getattr(track, "artists", None) or []) if getattr(a, "name", None)]
+        artist = ", ".join(artists) if artists else ""
+        if not title or not artist: return ""
+        duration_ms = self._int(getattr(track, "duration_ms", 0))
+        duration_sec = duration_ms // 1000 if duration_ms > 0 else 0
+        headers = {"User-Agent": f"OmarchyYandexMusic/{APP_VERSION} (https://github.com/vornashev/omarchy-yandex-music)"}
+        try:
+            params: dict[str, Any] = {"track_name": title, "artist_name": artist}
+            if duration_sec > 0: params["duration"] = str(duration_sec)
+            resp = requests.get("https://lrclib.net/api/get", params=params, headers=headers, timeout=3)
+            if resp.status_code == 200:
+                data = resp.json()
+                synced = data.get("syncedLyrics")
+                if synced and "[" in synced and "]" in synced:
+                    return str(synced)
+            search_params = {"track_name": title, "artist_name": artist}
+            resp2 = requests.get("https://lrclib.net/api/search", params=search_params, headers=headers, timeout=3)
+            if resp2.status_code == 200:
+                for item in resp2.json()[:3]:
+                    synced = item.get("syncedLyrics")
+                    if synced and "[" in synced and "]" in synced:
+                        return str(synced)
+        except Exception:
+            pass
+        return ""
+
     def _lyrics_entry(self, client: Client, track_id: str) -> dict[str, Any]:
         lrc_content = ""
         lrc_writers: list[str] = []
@@ -3643,21 +3676,49 @@ class Player:
             if self._is_rate_limit_error(exc): raise
             lrc_error = exc
 
+        if not lrc_content.strip():
+            with self.lock:
+                track = next((t for t in self.queue if self._track_id(t) == track_id), None)
+            if not track and client:
+                try:
+                    resolved = self._api_call(lambda: client.tracks([track_id]))
+                    if resolved: track = resolved[0]
+                except Exception:
+                    pass
+            if track is not None:
+                lrc_content = self._fetch_lrclib_synced(track)
+
         synced_lines = self._parse_lrc(lrc_content)
         if synced_lines:
             return {"available": True, "synced": True, "format": "LRC",
                     "writers": lrc_writers, "lines": synced_lines, "error": ""}
 
+        text_content = ""
+        text_writers: list[str] = []
         try:
             text_content, text_writers = self._fetch_lyrics_format(client, track_id, "TEXT")
         except Exception as exc:
-            return self._lyrics_text_failure(lrc_content, lrc_writers, lrc_error, exc)
+            pass
+
+        if not text_content:
+            try:
+                supp = self._api_call(lambda: client.track_supplement(track_id))
+                if supp and getattr(supp, "lyrics", None):
+                    text_content = str(getattr(supp.lyrics, "full_lyrics", "") or getattr(supp.lyrics, "lyrics", "") or "")
+                    if text_content and not text_writers:
+                        text_writers = [str(w) for w in (getattr(supp.lyrics, "writers", None) or []) if w]
+            except Exception:
+                pass
 
         plain_lines = self._plain_lyrics_lines(text_content)
         if plain_lines:
             return {"available": True, "synced": False, "format": "TEXT",
                     "writers": text_writers or lrc_writers, "lines": plain_lines, "error": ""}
-        if lrc_error and not self._is_not_found_error(lrc_error): raise lrc_error
+        if lrc_content.strip():
+            plain_lines = self._plain_lyrics_lines(lrc_content)
+            if plain_lines:
+                return {"available": True, "synced": False, "format": "TEXT",
+                        "writers": lrc_writers, "lines": plain_lines, "error": ""}
         return {"available": False, "synced": False, "format": "",
                 "writers": [], "lines": [], "error": ""}
 
@@ -3673,21 +3734,76 @@ class Player:
                 "lines": [dict(line) for line in value.get("lines", [])],
                 "error": str(value.get("error", ""))}
 
+    def _read_disk_lyrics(self, track_id: str) -> dict[str, Any] | None:
+        if not track_id or not getattr(self, "lyrics_cache_dir", None): return None
+        path = self.lyrics_cache_dir / f"{track_id}.json"
+        if path.exists():
+            try:
+                data = json.loads(path.read_text("utf-8"))
+                if isinstance(data, dict): return data
+            except Exception: pass
+        return None
+
+    def _write_disk_lyrics(self, track_id: str, entry: dict[str, Any]) -> None:
+        if not track_id or not entry or not getattr(self, "lyrics_cache_dir", None): return
+        try:
+            self.lyrics_cache_dir.mkdir(parents=True, exist_ok=True)
+            path = self.lyrics_cache_dir / f"{track_id}.json"
+            atomic_json(path, entry)
+        except Exception: pass
+
     def _store_lyrics_locked(self, track_id: str, entry: dict[str, Any]) -> None:
         self.lyrics_cache[track_id] = entry
         self.lyrics_cache.move_to_end(track_id)
         while len(self.lyrics_cache) > LYRICS_CACHE_MAX_ENTRIES:
             self.lyrics_cache.popitem(last=False)
+        self._write_disk_lyrics(track_id, entry)
+
+    def _prefetch_lyrics(self, track_id: str) -> None:
+        if not track_id or getattr(self, "lyrics_cache", None) is None: return
+        with self.lock:
+            client = self.client
+            if not client: return
+            if track_id in self.lyrics_cache or track_id in getattr(self, "lyrics_loading", set()):
+                return
+            disk = self._read_disk_lyrics(track_id)
+            if disk is not None:
+                self.lyrics_cache[track_id] = disk
+                self.lyrics_cache.move_to_end(track_id)
+                return
+            self.lyrics_loading.add(track_id)
+            generation = self.lyrics_generation
+
+        def load():
+            try:
+                entry = self._lyrics_entry(client, track_id)
+            except Exception as exc:
+                entry = {"available": False, "synced": False, "format": "",
+                         "writers": [], "lines": [],
+                         "error": f"Не удалось загрузить текст: {self._friendly_error(exc)}"}
+            with self.lock:
+                if generation != self.lyrics_generation or self.client is not client: return
+                self.lyrics_loading.discard(track_id)
+                self._store_lyrics_locked(track_id, entry)
+
+        threading.Thread(target=load, daemon=True).start()
 
     def lyrics(self, *, force: bool = False) -> dict[str, Any]:
-        """Return current lyrics or start an on-demand, in-memory-only load."""
+        """Return current lyrics or start an on-demand load with disk caching."""
         with self.lock:
             track = self._current_track_locked()
             track_id = self._track_id(track) if track is not None else ""
             client = self.client
             if not track_id or not client: return self._lyrics_response(track_id)
-            if force: self.lyrics_cache.pop(track_id, None)
+            if force:
+                self.lyrics_cache.pop(track_id, None)
+                try: (self.lyrics_cache_dir / f"{track_id}.json").unlink(missing_ok=True)
+                except Exception: pass
             cached = self.lyrics_cache.get(track_id)
+            if cached is None:
+                cached = self._read_disk_lyrics(track_id)
+                if cached is not None:
+                    self.lyrics_cache[track_id] = cached
             if cached is not None:
                 self.lyrics_cache.move_to_end(track_id)
                 return self._lyrics_response(track_id, cached)
@@ -4102,6 +4218,7 @@ class Player:
                             and not self.state.get("stopped"))
             requests_ = []
             if track and identity:
+                self._prefetch_lyrics(self._track_id(track))
                 requests_.append(CacheRequest(identity,
                     lambda: self._audio_source(track, quality=quality, background=True), valid,
                     lambda path: self._prepare_playlist(path, signature, target, track)))
@@ -4331,6 +4448,7 @@ class Player:
             self._notify_track(meta)
         threading.Thread(target=notify, daemon=True).start()
         self._save_state(True)
+        self._prefetch_lyrics(track_id)
         self._maybe_extend_radio()
         self._maybe_extend_collection()
         self._schedule_preload()
@@ -4750,6 +4868,16 @@ class Player:
             data["queueTotal"] = (-1 if getattr(self, "radio_station", "")
                                    or getattr(self, "queue_artist_has_more", False)
                                    else len(self.queue) + len(getattr(self, "queue_source", [])))
+            lyrics_cache = getattr(self, "lyrics_cache", None)
+            curr_track = self._current_track_locked() if hasattr(self, "_current_track_locked") else None
+            curr_id = self._track_id(curr_track) if curr_track else ""
+            cached_lyr = lyrics_cache.get(curr_id) if (lyrics_cache and curr_id) else None
+            if not cached_lyr and curr_id:
+                cached_lyr = self._read_disk_lyrics(curr_id)
+                if cached_lyr and lyrics_cache is not None:
+                    lyrics_cache[curr_id] = cached_lyr
+            loading = (curr_id in self.lyrics_loading) if hasattr(self, "lyrics_loading") else False
+            data["lyrics"] = self._lyrics_response(curr_id, cached_lyr, loading=loading)
             if include_queue:
                 data["catalog"] = copy.deepcopy(self.catalog)
                 data["libraryHub"] = copy.deepcopy(self.library_hub)

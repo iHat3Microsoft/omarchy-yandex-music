@@ -32,6 +32,7 @@ Item {
     property string key: ""
     property bool fallback: true
     property bool compact: false
+    property var onToggledCallback: null
     foreground: root.fg; dim: root.dim; fontFamily: root.ff
     minHeight: compact ? Style.space(32) : Style.space(38)
     ToggleSwitch {
@@ -39,7 +40,13 @@ Item {
       cursorRing: false
       checked: Boolean(root.pref(toggleRow.key, toggleRow.fallback))
       foreground: root.fg
-      onToggled: panel.setPreference(toggleRow.key, !checked)
+      onToggled: {
+        if (toggleRow.onToggledCallback) {
+          toggleRow.onToggledCallback(!checked)
+        } else {
+          panel.setPreference(toggleRow.key, !checked)
+        }
+      }
     }
   }
   component SelectRow: SettingRow {
@@ -191,8 +198,10 @@ Item {
       visible: root.wide
       x: root.gutter + root.columnWidth + Style.space(32); width: root.columnWidth
       SectionLabel { text: "ВЕРХНИЙ БАР" }
-      ToggleRow { width: parent.width; label: "Кнопки управления"; key: "showControls" }
+      ToggleRow { width: parent.width; label: "Кнопки плеера (⏮ ⏯ ⏭)"; key: "showControls" }
       ToggleRow { width: parent.width; label: "Громкость"; key: "showVolume" }
+      ToggleRow { width: parent.width; label: "Субтитры в баре"; key: "showBarLyrics"; fallback: false }
+      ToggleRow { width: parent.width; label: "Управление кликами по тексту"; key: "barMouseControls"; fallback: false }
       ToggleRow { width: parent.width; label: "Время трека"; key: "showTime"; fallback: false }
       ToggleRow { width: parent.width; label: "Кнопка «Нравится»"; key: "showLike"; fallback: false }
       ToggleRow { width: parent.width; label: "Исполнитель"; key: "showArtist" }
@@ -276,14 +285,16 @@ Item {
         width: parent.width; spacing: Style.space(24)
         Column {
           width: (parent.width - Style.space(24)) / 2
-          ToggleRow { width: parent.width; label: "Кнопки"; key: "showControls"; compact: true }
+          ToggleRow { width: parent.width; label: "Кнопки (⏮ ⏯ ⏭)"; key: "showControls"; compact: true }
+          ToggleRow { width: parent.width; label: "Громкость"; key: "showVolume"; compact: true }
           ToggleRow { width: parent.width; label: "Исполнитель"; key: "showArtist"; compact: true }
           ToggleRow { width: parent.width; label: "Обложка"; key: "showCover"; compact: true }
           ToggleRow { width: parent.width; label: "Время"; key: "showTime"; fallback: false; compact: true }
         }
         Column {
           width: (parent.width - Style.space(24)) / 2
-          ToggleRow { width: parent.width; label: "Громкость"; key: "showVolume"; compact: true }
+          ToggleRow { width: parent.width; label: "Субтитры"; key: "showBarLyrics"; fallback: false; compact: true }
+          ToggleRow { width: parent.width; label: "Жесты"; key: "barMouseControls"; fallback: false; compact: true }
           ToggleRow { width: parent.width; label: "Название"; key: "showTitle"; compact: true }
           ToggleRow { width: parent.width; label: "Прогресс"; key: "showProgress"; compact: true }
           ToggleRow { width: parent.width; label: "Нравится"; key: "showLike"; fallback: false; compact: true }

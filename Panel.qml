@@ -1199,7 +1199,7 @@ Panel {
 
   KeyboardPanel {
     id: panel
-    anchorItem: root.anchorItem
+    anchorItem: (root.anchorItem && root.anchorItem.coverItem) ? root.anchorItem.coverItem : root.anchorItem
     owner: root.hostWidget || root
     bar: root.bar
     open: root.opened
