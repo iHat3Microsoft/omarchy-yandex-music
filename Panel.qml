@@ -1197,9 +1197,19 @@ Panel {
   }
 
 
+  Item {
+    id: leftAlignedAnchor
+    parent: (root.anchorItem && root.anchorItem.coverItem) ? root.anchorItem.coverItem : (root.anchorItem || root)
+    x: 0
+    y: 0
+    width: panel.contentWidth
+    height: parent ? parent.height : 0
+    visible: false
+  }
+
   KeyboardPanel {
     id: panel
-    anchorItem: (root.anchorItem && root.anchorItem.coverItem) ? root.anchorItem.coverItem : root.anchorItem
+    anchorItem: leftAlignedAnchor
     owner: root.hostWidget || root
     bar: root.bar
     open: root.opened

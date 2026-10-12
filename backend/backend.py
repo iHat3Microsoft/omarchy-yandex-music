@@ -68,6 +68,7 @@ DEFAULT_PREFERENCES = {
     "barMouseControls": False,
     "barWidth": "normal",
     "longTitleMode": "scroll",
+    "lyricsWidthMode": "auto",
     "notifications": "off",
     "popupLayout": "compact",
 }
@@ -849,6 +850,7 @@ class Player:
             "coverShape": ("square", "rounded", "circle"),
             "barWidth": ("compact", "normal", "wide"),
             "longTitleMode": ("truncate", "scroll"),
+            "lyricsWidthMode": ("auto", "compact", "normal", "wide", "full"),
             "notifications": ("off", "all"),
             "popupLayout": ("mini", "compact", "wide"),
         }
@@ -871,6 +873,7 @@ class Player:
             "coverShape": ("square", "rounded", "circle"),
             "barWidth": ("compact", "normal", "wide"),
             "longTitleMode": ("truncate", "scroll"),
+            "lyricsWidthMode": ("auto", "compact", "normal", "wide", "full"),
             "notifications": ("off", "all"),
             "popupLayout": ("mini", "compact", "wide"),
         }

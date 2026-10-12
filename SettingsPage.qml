@@ -107,6 +107,12 @@ Item {
     { value: "scroll", label: "Прокрутка" }]
   readonly property var widthOptions: [{ value: "compact", label: "Компактная" },
     { value: "normal", label: "Обычная" }, { value: "wide", label: "Широкая" }]
+  readonly property var lyricsWidthOptions: [
+    { value: "auto", label: wide ? "Авто (до центра)" : "Авто" },
+    { value: "compact", label: wide ? "Компактная (240px)" : "240px" },
+    { value: "normal", label: wide ? "Обычная (400px)" : "400px" },
+    { value: "wide", label: wide ? "Широкая (600px)" : "600px" },
+    { value: "full", label: wide ? "Максимум" : "Макс" }]
   readonly property var notifyOptions: [{ value: "off", label: wide ? "Выключены" : "Выкл." },
     { value: "all", label: wide ? "Показывать всегда" : "Всегда" }]
 
@@ -214,6 +220,8 @@ Item {
         fallback: "scroll"; options: root.titleOptions }
       SelectRow { width: parent.width; label: "Ширина информации"; key: "barWidth"
         fallback: "normal"; options: root.widthOptions }
+      SelectRow { width: parent.width; label: "Ширина субтитров"; key: "lyricsWidthMode"
+        fallback: "auto"; options: root.lyricsWidthOptions }
       SelectRow { width: parent.width; label: "Уведомления"; key: "notifications"
         fallback: "off"; options: root.notifyOptions }
     }
@@ -306,6 +314,8 @@ Item {
         fallback: "scroll"; options: root.titleOptions }
       SelectRow { width: parent.width; label: "Ширина информации"; key: "barWidth"
         fallback: "normal"; options: root.widthOptions }
+      SelectRow { width: parent.width; label: "Ширина субтитров"; key: "lyricsWidthMode"
+        fallback: "auto"; options: root.lyricsWidthOptions }
       SelectRow { width: parent.width; label: "Уведомления"; key: "notifications"
         fallback: "off"; options: root.notifyOptions }
       SectionLabel { text: "АККАУНТ" }

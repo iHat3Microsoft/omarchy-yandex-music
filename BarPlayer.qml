@@ -41,12 +41,51 @@ Item {
     return Style.space(230)
   }
   readonly property real lyricsMaxWidth: {
-    var mode = String(preferences.barWidth || "normal")
-    if (mode === "compact") return Style.space(160)
-    if (mode === "wide") return Style.space(320)
-    return Style.space(220)
+    var mode = String(preferences.lyricsWidthMode || "auto")
+    if (mode === "compact") return Style.space(240)
+    if (mode === "normal") return Style.space(400)
+    if (mode === "wide") return Style.space(600)
+    if (mode === "full") return Style.space(1200)
+
+    // "auto" mode: dynamically compute space up to the center of the bar
+    var screenW = (root.bar && root.bar.width > 0) ? root.bar.width
+      : (typeof Screen !== "undefined" && Screen.width > 0 ? Screen.width : 1920)
+    var centerX = screenW / 2
+    var globalX = 0
+    try {
+      if (root.visible && root.width > 0) {
+        var pt = root.mapToItem(null, 0, 0)
+        if (pt && typeof pt.x === "number") globalX = pt.x
+      }
+    } catch (e) {}
+
+    if (globalX >= 0 && globalX < centerX) {
+      var beforeLyrics = separatorItem.x > 0 ? (separatorItem.x + separatorItem.width + Style.space(8)) : Style.space(200)
+      var maxFit = centerX - globalX - beforeLyrics - Style.space(20)
+      if (maxFit > Style.space(160)) return maxFit
+    }
+
+    var barMode = String(preferences.barWidth || "normal")
+    if (barMode === "compact") return Style.space(240)
+    if (barMode === "wide") return Style.space(600)
+    return Style.space(450)
   }
-  readonly property real lyricsWidth: lyricsMaxWidth
+  readonly property int maxLyricChars: {
+    var lines = root.lyricsLines
+    if (!lines || lines.length === 0) return 0
+    var m = 0
+    for (var i = 0; i < lines.length; i++) {
+      var len = String(lines[i].text || "").trim().length
+      if (len > m) m = len
+    }
+    return m
+  }
+  readonly property real lyricsWidth: {
+    if (!root.syncedLyricsAvailable) return 0
+    var charW = Style.space(7.8)
+    var computed = maxLyricChars > 0 ? (maxLyricChars * charW + Style.space(16)) : lyricsMaxWidth
+    return Math.min(lyricsMaxWidth, Math.max(Style.space(160), computed))
+  }
   readonly property Item coverItem: cover.visible ? cover : (labelSlot.visible ? labelSlot : root)
 
   property double positionClockMs: Date.now()
@@ -370,6 +409,35 @@ Item {
       }
     }
 
+    BarButton {
+      id: likeButton
+      z: 15
+      visible: root.showLike && root.hasTrack && !root.signedOut && !root.errorState
+      anchors.verticalCenter: parent.verticalCenter
+      bar: root.bar; foreground: root.foreground
+      readonly property bool liked: root.logic ? root.logic.snapshot.liked === true : false
+      readonly property bool shownLiked: root.likePending ? !liked : liked
+      name: "heart"
+      filled: shownLiked
+      iconColor: shownLiked ? Color.accent : root.foreground
+      iconOpacity: root.likePending ? .5 : 1
+      flash: root.likeFlash
+      errorDot: root.likeError
+      tooltip: shownLiked ? "Убрать из любимого (L)" : "Нравится (L)"
+      onClicked: root.toggleLike()
+    }
+
+    Text {
+      id: showTimeText
+      textFormat: Text.PlainText
+      visible: root.showTime && root.hasTrack && !root.signedOut && !root.errorState
+      anchors.verticalCenter: parent.verticalCenter
+      text: formatTime(Number(root.logic ? root.logic.snapshot.position || 0 : 0)) + " / "
+        + formatTime(Number(root.logic ? root.logic.snapshot.duration || 0 : 0))
+      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, .55)
+      font.family: root.fontFamily; font.pixelSize: Style.font.caption
+    }
+
     Item {
       id: separatorItem
       visible: root.showBarLyrics && root.hasTrack && root.syncedLyricsAvailable && !root.signedOut && !root.errorState
@@ -409,19 +477,129 @@ Item {
         }
       }
 
+      Item {
+        id: waveHolder
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        width: lyricsSlot.width
+        height: Style.space(20)
+        visible: lyricsSlot.currentDisplayedText === "" || lyricsSlot.currentDisplayedText === "♪"
+
+        Canvas {
+          id: waveCanvas
+          anchors.fill: parent
+          antialiasing: true
+
+          property real phase: 0
+          readonly property real waveAmp: root.playing ? 1.0 : 0.15
+
+          Timer {
+            interval: 25
+            running: root.playing && waveHolder.visible
+            repeat: true
+            onTriggered: {
+              waveCanvas.phase += 0.07
+              waveCanvas.requestPaint()
+            }
+          }
+
+          function topY(x, w, h) {
+            var baseLine = h - Style.space(2)
+            var taperRight = x > (w - Style.space(16)) ? Math.max(0, (w - x) / Style.space(16)) : 1.0
+            var waveH = (
+              Math.sin(x * 0.038 + waveCanvas.phase) * Style.space(4.5) +
+              Math.sin(x * 0.082 + waveCanvas.phase * 1.5) * Style.space(2.8) +
+              Math.sin(x * 0.016 - waveCanvas.phase * 0.7) * Style.space(2.0)
+            ) * waveAmp * taperRight
+            return Math.max(Style.space(2), baseLine - Style.space(3) - Math.max(-Style.space(1), waveH))
+          }
+
+          function waveFill(ctx, targetX, h, fillStyle) {
+            var base = h - Style.space(2)
+            var step = 4
+            ctx.beginPath()
+            ctx.moveTo(0, base)
+            ctx.lineTo(0, topY(0, targetX, h))
+            for (var x = step; x <= targetX; x += step) {
+              ctx.lineTo(x, topY(x, targetX, h))
+            }
+            ctx.lineTo(targetX, base)
+            ctx.closePath()
+            ctx.fillStyle = fillStyle
+            ctx.fill()
+          }
+
+          onPaint: {
+            var ctx = getContext("2d")
+            var w = width
+            var h = height
+            if (w <= 0 || h <= 0) return
+            ctx.clearRect(0, 0, w, h)
+
+            var col = Color.accent
+            var r = Math.round(col.r * 255)
+            var g = Math.round(col.g * 255)
+            var b = Math.round(col.b * 255)
+            var targetX = w - Style.space(2)
+
+            // Solid filled wave silhouette exactly matching screenshot
+            var waveStyle = "rgba(" + r + "," + g + "," + b + ", 0.70)"
+            waveFill(ctx, targetX, h, waveStyle)
+
+            // Crisp top crest line for sharpness
+            ctx.beginPath()
+            ctx.lineWidth = Style.space(1.5)
+            ctx.strokeStyle = "rgba(" + r + "," + g + "," + b + ", 0.95)"
+            ctx.lineCap = "round"
+            ctx.lineJoin = "round"
+            var step = 4
+            for (var x2 = 0; x2 <= targetX; x2 += step) {
+              var y2 = topY(x2, targetX, h)
+              if (x2 === 0) ctx.moveTo(x2, y2)
+              else ctx.lineTo(x2, y2)
+            }
+            ctx.stroke()
+          }
+        }
+      }
+
       Text {
         textFormat: Text.PlainText
         id: lyricLabel
+        visible: lyricsSlot.currentDisplayedText !== "" && lyricsSlot.currentDisplayedText !== "♪"
         anchors.left: parent.left
         y: (parent.height - implicitHeight) / 2
         width: Math.min(implicitWidth, parent.width)
-        text: lyricsSlot.currentDisplayedText !== "" ? lyricsSlot.currentDisplayedText : "♪"
-        color: lyricsSlot.currentDisplayedText !== "" ? Color.accent : root.foreground
-        opacity: lyricsSlot.currentDisplayedText !== "" ? 1.0 : 0.4
+        text: lyricsSlot.currentDisplayedText
+        color: Color.accent
+        opacity: 1.0
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
         font.weight: Font.Medium
-        elide: Text.ElideRight
+        elide: root.longTitleMode === "scroll" ? Text.ElideNone : Text.ElideRight
+      }
+
+      SequentialAnimation {
+        id: lyricMarquee
+        running: root.longTitleMode === "scroll" && !lyricTransition.running
+          && lyricLabel.implicitWidth > lyricsSlot.width
+        loops: Animation.Infinite
+        PauseAnimation { duration: 900 }
+        NumberAnimation {
+          target: lyricLabel; property: "x"
+          from: 0; to: Math.min(0, lyricsSlot.width - lyricLabel.implicitWidth)
+          duration: Math.max(1200, (lyricLabel.implicitWidth - lyricsSlot.width) * 20)
+          easing.type: Easing.InOutSine
+        }
+        PauseAnimation { duration: 600 }
+        NumberAnimation {
+          target: lyricLabel; property: "x"; to: 0
+          duration: 300; easing.type: Easing.OutCubic
+        }
+      }
+      Connections {
+        target: lyricTransition
+        function onRunningChanged() { if (lyricTransition.running) lyricLabel.x = 0 }
       }
 
       SequentialAnimation {
@@ -439,6 +617,7 @@ Item {
         ScriptAction {
           script: {
             lyricsSlot.currentDisplayedText = lyricsSlot.pendingText
+            lyricLabel.x = 0
             lyricLabel.y = ((lyricsSlot.height - lyricLabel.implicitHeight) / 2) + Style.space(6)
           }
         }
@@ -455,33 +634,6 @@ Item {
           }
         }
       }
-    }
-
-    Text {
-      textFormat: Text.PlainText
-      visible: root.showTime && root.hasTrack && !root.signedOut && !root.errorState
-      anchors.verticalCenter: parent.verticalCenter
-      text: formatTime(Number(root.logic ? root.logic.snapshot.position || 0 : 0)) + " / "
-        + formatTime(Number(root.logic ? root.logic.snapshot.duration || 0 : 0))
-      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, .55)
-      font.family: root.fontFamily; font.pixelSize: Style.font.caption
-    }
-
-    BarButton {
-      id: likeButton
-      visible: root.showLike && root.hasTrack && !root.signedOut && !root.errorState
-      anchors.verticalCenter: parent.verticalCenter
-      bar: root.bar; foreground: root.foreground
-      readonly property bool liked: root.logic ? root.logic.snapshot.liked === true : false
-      readonly property bool shownLiked: root.likePending ? !liked : liked
-      name: "heart"
-      filled: shownLiked
-      iconColor: shownLiked ? Color.accent : root.foreground
-      iconOpacity: root.likePending ? .5 : 1
-      flash: root.likeFlash
-      errorDot: root.likeError
-      tooltip: shownLiked ? "Убрать из любимого (L)" : "Нравится (L)"
-      onClicked: root.toggleLike()
     }
 
     Item {
@@ -606,7 +758,9 @@ Item {
     y: 0
     width: {
       var startX = cover.visible ? cover.x : labelSlot.x
-      var endX = (lyricsSlot.visible ? lyricsSlot.x + lyricsSlot.width : labelSlot.x + labelSlot.width)
+      var endX = lyricsSlot.visible ? (lyricsSlot.x + lyricsSlot.width)
+        : (showTimeText.visible ? (showTimeText.x + showTimeText.width)
+          : (likeButton.visible ? (likeButton.x + likeButton.width) : (labelSlot.x + labelSlot.width)))
       return (endX - startX) + Style.space(8)
     }
     height: root.height
@@ -637,6 +791,13 @@ Item {
         }
       }
     }
+    function isOverLyrics(xPos) {
+      if (!lyricsSlot.visible || !root.syncedLyricsAvailable) return false
+      var lyricsStartX = controls.x + lyricsSlot.x
+      var currentX = infoArea.x + xPos
+      return currentX >= lyricsStartX
+    }
+
     onWheel: function(wheel) {
       if (!root.logic || wheel.angleDelta.y === 0) return
       wheel.accepted = true
@@ -644,8 +805,12 @@ Item {
         if (!root.hasTrack) return
         var pos = root.displayPosition
         var dur = Number(root.logic.snapshot.duration || 0)
+        var overLyrics = isOverLyrics(wheel.x)
+
         if (wheel.angleDelta.y > 0) {
-          if (root.syncedLyricsAvailable && root.lyricsLines.length > 0) {
+          // Scroll Up:
+          // If over synced lyrics -> seek to next lyric line
+          if (overLyrics && root.lyricsLines.length > 0) {
             var nextTime = -1
             for (var i = 0; i < root.lyricsLines.length; i++) {
               var t = Number(root.lyricsLines[i].time || 0)
@@ -656,10 +821,13 @@ Item {
               return
             }
           }
+          // Otherwise (over title, cover, or rest of bar) -> seek +5s
           var targetForward = Math.min(dur > 0 ? dur : pos + 5, pos + 5)
           root.logic.transport("seek", Math.round(targetForward))
         } else {
-          if (root.syncedLyricsAvailable && root.lyricsLines.length > 0) {
+          // Scroll Down:
+          // If over synced lyrics -> seek to previous lyric line
+          if (overLyrics && root.lyricsLines.length > 0) {
             var prevTime = -1
             for (var j = root.lyricsLines.length - 1; j >= 0; j--) {
               var pt = Number(root.lyricsLines[j].time || 0)
@@ -670,6 +838,7 @@ Item {
               return
             }
           }
+          // Otherwise (over title, cover, or rest of bar) -> seek -5s
           var targetBack = Math.max(0, pos - 5)
           root.logic.transport("seek", Math.round(targetBack))
         }
@@ -681,7 +850,7 @@ Item {
       if (root.barMouseControls && root.hasTrack) {
         var tip = root.label
         if (root.targetLyricText !== "") tip += "\n[Текст] " + root.targetLyricText
-        tip += "\nОбложка: плеер · ЛКМ: пауза · ПКМ: след. · СКМ: пред. · колесо: перемотка"
+        tip += "\nОбложка: меню · ЛКМ: пауза · ПКМ: след. · СКМ: пред. · колесо: ±5 сек (над текстом: по строкам)"
         root.bar.showTooltip(root, tip)
       } else {
         root.bar.showTooltip(root,
@@ -722,16 +891,28 @@ Item {
   }
 
   Rectangle {
-    visible: root.hasTrack && root.showProgress && infoArea.visible
-    x: infoArea.x; width: infoArea.width
+    id: progressBarContainer
+    visible: root.hasTrack && root.showProgress
+    x: controls.x + (cover.visible ? cover.x : labelSlot.x)
     anchors.bottom: parent.bottom
-    height: Style.space(2); color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, .15)
+    width: {
+      var startX = cover.visible ? cover.x : labelSlot.x
+      var endX = separatorItem.visible
+        ? separatorItem.x
+        : (showTimeText.visible ? (showTimeText.x + showTimeText.width)
+          : (likeButton.visible ? (likeButton.x + likeButton.width) : (labelSlot.x + labelSlot.width)))
+      return Math.max(Style.space(40), endX - startX)
+    }
+    height: Style.space(2)
+    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, .15)
     opacity: root.dimmed ? .5 : 1
+
     Rectangle {
       width: parent.width * (root.logic
-        ? Math.min(1, Number(root.logic.snapshot.position || 0) / Math.max(1, Number(root.logic.snapshot.duration || 1)))
+        ? Math.min(1, root.displayPosition / Math.max(1, Number(root.logic.snapshot.duration || 1)))
         : 0)
-      height: parent.height; color: Color.accent
+      height: parent.height
+      color: Color.accent
     }
   }
 }
