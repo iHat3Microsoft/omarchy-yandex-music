@@ -20,6 +20,8 @@ A native Yandex Music mini-player for the [Omarchy](https://omarchy.org/) shell.
 > This project uses the unofficial [yandex-music-api](https://github.com/MarshalX/yandex-music-api) library and is not affiliated with Yandex. A Yandex Music subscription may be required for full-track playback.
 
 ## Screenshots
+<img width="539" height="36" alt="screenshot-2026-10-12_16-47-55" src="https://github.com/user-attachments/assets/23d60cef-ab4c-4aac-bc1a-0c0fbd292f92" />
+<img width="338" height="40" alt="screenshot-2026-10-12_16-48-28" src="https://github.com/user-attachments/assets/f47c96e6-dbec-442d-8c7d-353da5709906" />
 
 <img width="895" height="83" alt="image" src="https://github.com/user-attachments/assets/ae354db3-6fa9-4bdd-a535-1a6270899653" />
 
