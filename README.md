@@ -39,6 +39,7 @@ Internet access, Python 3 (`python`), `mpv`, `jq`, `util-linux` (`flock`) and `c
 - **Library & search** — your favorites and the full catalog, without interrupting playback.
 - **Playlists** — add tracks, create private playlists and explore recommendations.
 - **Lyrics & track info** — synced lyrics with click-to-seek and recording credits.
+- **Bar lyrics & wave visualizer** — synced karaoke lyrics directly in the bar, liquid spectrum wave during vocal pauses, and mouse gesture seeking.
 - **Playback** — shuffle, repeat, media keys and resume where you left off.
 - **Your layout** — Compact or Wide, Omarchy theme colors and a customizable bar.
 
@@ -73,6 +74,12 @@ Click any preview to view it full-size.
   <a href="docs/screenshots/add-to-playlist.webp"><img src="docs/screenshots/add-to-playlist.webp" alt="Design preview: add a track to a playlist" width="49%"></a>
 </p>
 <p align="center"><em>Lyrics · Add to playlist</em></p>
+
+<p align="center">
+  <a href="docs/screenshots/bar-lyrics.webp"><img src="docs/screenshots/bar-lyrics.webp" alt="Synced lyrics in the bar" width="49%"></a>
+  <a href="docs/screenshots/bar-wave.webp"><img src="docs/screenshots/bar-wave.webp" alt="Wave visualizer during instrumental pauses" width="49%"></a>
+</p>
+<p align="center"><em>Bar lyrics · Wave visualizer during pauses</em></p>
 
 <p align="center">
   <a href="docs/screenshots/themes.webp"><img src="docs/screenshots/themes.webp" alt="Design preview: Compact view in three Omarchy themes" width="900"></a>

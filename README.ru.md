@@ -39,6 +39,7 @@ omarchy plugin add https://github.com/vornashev/omarchy-yandex-music.git --enabl
 - **Медиатека и поиск** — любимое и весь каталог, без прерывания музыки.
 - **Плейлисты** — добавление треков, создание приватных плейлистов и рекомендации.
 - **Тексты и сведения** — синхронный текст с перемоткой по строке и участники записи.
+- **Субтитры и волна в баре** — синхронные строки караоке прямо в баре, волна-визуализатор в паузах вокала и перемотка жестами мыши.
 - **Воспроизведение** — перемешивание, повтор, медиаклавиши и продолжение с прежнего места.
 - **Ваш интерфейс** — Компакт или Широкий вид, цвета темы Omarchy и настраиваемый бар.
 
@@ -73,6 +74,12 @@ omarchy plugin add https://github.com/vornashev/omarchy-yandex-music.git --enabl
   <a href="docs/screenshots/add-to-playlist.webp"><img src="docs/screenshots/add-to-playlist.webp" alt="Макет: добавление трека в плейлист" width="49%"></a>
 </p>
 <p align="center"><em>Текст · Добавление в плейлист</em></p>
+
+<p align="center">
+  <a href="docs/screenshots/bar-lyrics.webp"><img src="docs/screenshots/bar-lyrics.webp" alt="Субтитры в баре" width="49%"></a>
+  <a href="docs/screenshots/bar-wave.webp"><img src="docs/screenshots/bar-wave.webp" alt="Волна-визуализатор во время пауз в тексте" width="49%"></a>
+</p>
+<p align="center"><em>Субтитры в баре · Волна-визуализатор во время пауз в тексте</em></p>
 
 <p align="center">
   <a href="docs/screenshots/themes.webp"><img src="docs/screenshots/themes.webp" alt="Макет: Компакт в трёх темах Omarchy" width="900"></a>
