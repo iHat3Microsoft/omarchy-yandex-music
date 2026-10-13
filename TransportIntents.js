@@ -41,7 +41,7 @@ function resolve(intent, payload) {
     return { command: "play_catalog_track", argument: [source, trackIndex] }
   }
   if (intent === "seek") {
-    var sec = typeof payload === "number" && isFinite(payload) && payload >= 0 ? Math.round(payload) : -1
+    var sec = typeof payload === "number" && isFinite(payload) && payload >= 0 ? payload : -1
     return sec < 0 ? null : { command: "seek", argument: sec }
   }
   return null
